@@ -1,0 +1,71 @@
+<mujoco model="pregrasp_demo_not_a_real_robot">
+  <compiler angle="radian"/>
+  <option gravity="0 0 0"/>
+  <worldbody>
+    <body name="base_Link" pos="0.1 -0.2 0.3">
+      <body name="left_link_0">
+        <joint name="left_0" type="slide" axis="1 0 0" limited="true" range="-1.5 1.5"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="left_link_1">
+        <joint name="left_1" type="slide" axis="0 1 0" limited="true" range="-1.5 1.5"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="left_link_2">
+        <joint name="left_2" type="slide" axis="0 0 1" limited="true" range="0.1 1.5"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="left_link_3">
+        <joint name="left_3" type="hinge" axis="1 0 0" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="left_link_4">
+        <joint name="left_4" type="hinge" axis="0 1 0" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="left_link_5">
+        <joint name="left_5" type="hinge" axis="0 0 1" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="left_wrist">
+        <joint name="left_6" type="hinge" axis="0 0 1" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+        <geom name="left_tool" type="sphere" size="0.035" rgba="0.3 0.6 0.8 1"/>
+      </body>
+      </body>
+      </body>
+      </body>
+      </body>
+      </body>
+      </body>
+      <body name="right_link_0">
+        <joint name="right_0" type="slide" axis="1 0 0" limited="true" range="-1.5 1.5"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="right_link_1">
+        <joint name="right_1" type="slide" axis="0 1 0" limited="true" range="-1.5 1.5"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="right_link_2">
+        <joint name="right_2" type="slide" axis="0 0 1" limited="true" range="0.1 1.5"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="right_link_3">
+        <joint name="right_3" type="hinge" axis="1 0 0" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="right_link_4">
+        <joint name="right_4" type="hinge" axis="0 1 0" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="right_link_5">
+        <joint name="right_5" type="hinge" axis="0 0 1" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+      <body name="right_wrist">
+        <joint name="right_6" type="hinge" axis="0 0 1" limited="true" range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.1" diaginertia="0.001 0.001 0.001"/>
+        <geom name="right_tool" type="sphere" size="0.035" rgba="0.3 0.6 0.8 1"/>
+      </body>
+      </body>
+      </body>
+      </body>
+      </body>
+      </body>
+      </body>
+      <body name="head" pos="0 0 1.8">
+        <joint name="head_0" axis="0 0 1" limited="true" range="-1 1"/>
+        <joint name="head_1" axis="0 1 0" limited="true" range="-1 1"/>
+        <geom name="head_shape" type="sphere" size="0.05"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

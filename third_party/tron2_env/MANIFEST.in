@@ -1,0 +1,9 @@
+include CHANGELOG.md
+include CONTRIBUTING.md
+include LICENSE
+include NOTICE
+include README.md
+include README_CN.md
+include SECURITY.md
+include THIRD_PARTY_DEPENDENCIES.md
+recursive-include examples *.py

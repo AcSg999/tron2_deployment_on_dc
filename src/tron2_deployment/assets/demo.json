@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "profile_id": "demo-pregrasp-v1",
+  "robot": {
+    "model_xml": "demo_robot.xml",
+    "base_body": "base_Link",
+    "wrist_bodies": {
+      "left": "left_wrist",
+      "right": "right_wrist"
+    },
+    "arm_joint_names": {
+      "left": [
+        "left_0",
+        "left_1",
+        "left_2",
+        "left_3",
+        "left_4",
+        "left_5",
+        "left_6"
+      ],
+      "right": [
+        "right_0",
+        "right_1",
+        "right_2",
+        "right_3",
+        "right_4",
+        "right_5",
+        "right_6"
+      ]
+    },
+    "head_joint_names": [
+      "head_0",
+      "head_1"
+    ],
+    "joint_lower": [
+      -1.5,
+      -1.5,
+      0.1,
+      -3.14,
+      -3.14,
+      -3.14,
+      -3.14,
+      -1.5,
+      -1.5,
+      0.1,
+      -3.14,
+      -3.14,
+      -3.14,
+      -3.14
+    ],
+    "joint_upper": [
+      1.5,
+      1.5,
+      1.5,
+      3.14,
+      3.14,
+      3.14,
+      3.14,
+      1.5,
+      1.5,
+      1.5,
+      3.14,
+      3.14,
+      3.14,
+      3.14
+    ],
+    "velocity_limits": [
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8
+    ],
+    "acceleration_limits": [
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0
+    ]
+  },
+  "camera": {
+    "backend": "mock",
+    "identity": "synthetic-camera",
+    "width": 640,
+    "height": 480,
+    "intrinsics": [
+      [
+        500,
+        0,
+        320
+      ],
+      [
+        0,
+        500,
+        240
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ],
+    "distortion": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "calibration": {
+    "id": "synthetic-only",
+    "source": "mock",
+    "verified": false,
+    "camera_to_base": [
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        1
+      ]
+    ],
+    "head_q2": [
+      0,
+      0
+    ],
+    "head_tolerance_rad": 0.01
+  },
+  "vision": {
+    "mesh_id": "demo-bowl",
+    "mask_endpoint": "tcp://127.0.0.1:5560",
+    "pose_endpoint": "tcp://127.0.0.1:5557",
+    "timeout_ms": 120000
+  },
+  "scene": {
+    "table_z_m": 0,
+    "clearance_m": 0.01,
+    "object_radius_m": 0.08
+  },
+  "pregrasp": {
+    "left": {
+      "symmetry": "axial",
+      "wrist_to_tcp_pose7": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "up_axis_object": [
+        0,
+        0,
+        1
+      ],
+      "radius_m": 0.08,
+      "axial_offset_m": 0,
+      "standoff_m": 0.12,
+      "lift_clearance_m": 0.05
+    },
+    "right": {
+      "symmetry": "axial",
+      "wrist_to_tcp_pose7": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "up_axis_object": [
+        0,
+        0,
+        1
+      ],
+      "radius_m": 0.08,
+      "axial_offset_m": 0,
+      "standoff_m": 0.12,
+      "lift_clearance_m": 0.05
+    }
+  },
+  "execution": {
+    "allow_real": false,
+    "hold_behavior_verified": false,
+    "publish_hz": 500,
+    "observation_max_age_s": 120
+  },
+  "demo": {
+    "arm_q14": [
+      -0.6,
+      0,
+      0.5,
+      0,
+      0,
+      0,
+      0,
+      0.6,
+      0,
+      0.5,
+      0,
+      0,
+      0,
+      0
+    ],
+    "head_q2": [
+      0,
+      0
+    ],
+    "object_pose7_base": [
+      0,
+      0,
+      0.5,
+      1,
+      0,
+      0,
+      0
+    ]
+  }
+}

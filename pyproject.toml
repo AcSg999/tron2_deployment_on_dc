@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tron2-deployment"
+version = "0.1.0"
+description = "Calibration to object-aware dual-wrist pregrasp deployment"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = ["numpy>=1.24,<3", "scipy>=1.10,<2", "opencv-contrib-python>=4.10,<5", "pyzmq>=25,<28", "websocket-client>=1.8,<2", "mujoco>=3.5,<4"]
+
+[project.optional-dependencies]
+bridge = ["websockets>=12,<17"]
+ros = ["rospkg>=1.5,<2", "catkin-pkg>=1,<2", "defusedxml>=0.7,<1", "netifaces>=0.11"]
+dev = ["pytest>=8,<10", "build>=1.2"]
+
+[project.scripts]
+tron2-deploy = "tron2_deployment.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tron2_deployment = ["web/*", "assets/*.xml", "assets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

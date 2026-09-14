@@ -1,0 +1,38 @@
+tron2_env
+
+This package contains the public TRON2 runtime code used by the TRON2 OpenPI
+deployment example. Most source files in this package are LimX-developed TRON2
+runtime code.
+
+Third-party source included in the current release scope:
+
+LeRobot ActionQueue
+
+- Upstream project: Hugging Face LeRobot
+- Upstream commit: ca87ccd9413c59c30f524967222d2e3f1b7bb549
+- Upstream source:
+  https://github.com/huggingface/lerobot/blob/ca87ccd9413c59c30f524967222d2e3f1b7bb549/src/lerobot/policies/rtc/action_queue.py
+- License: Apache License 2.0
+- Copyright: Copyright 2025 The HuggingFace Inc. team. All rights reserved.
+- Local path: src/tron2_env/rtc/action_queue.py
+- Classification: modified vendored source
+- Runtime use: bundled as part of the tron2_env Python package
+- Distributed in: this source repository and Python wheel/source distributions
+  built from the current pyproject.toml
+- Modified: yes
+- Modification type: modified-code and modified-build/integration
+- Modifications by LimX Dynamics in 2026: ported queue storage from PyTorch
+  tensors to NumPy arrays; replaced RTCConfig coupling with runtime arguments;
+  added atomic snapshots, delay handling, merge-boundary diagnostics, and TRON2
+  action-dimension diagnostics.
+- Redistribution basis: Apache License 2.0; the upstream copyright and license
+  header are retained in the local file, and the license text is in LICENSE.
+
+This notice describes only the current repository and the Python wheel/source
+distributions produced from it. It does not make a license or distribution
+commitment for future Docker images, SDKs, offline bundles, firmware, models,
+datasets, or other release artifacts.
+
+No model weights, datasets, private deployment profiles, real robot addresses,
+camera serial numbers, credentials, or generated logs are included as part of
+this public notice.

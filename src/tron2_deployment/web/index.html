@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TRON2 · 物体接近工作台</title><link rel="stylesheet" href="/workflow.css"><script src="/app.js" defer></script></head>
+<body><main>
+<header><div><strong>TRON2</strong><span>独立部署工作台</span></div><div><span id="connection" class="badge">连接中</span><button id="refresh" class="text" type="button">刷新</button></div></header>
+<div class="intro"><p class="eyebrow">OBJECT-AWARE PREGRASP</p><h1>双腕接近物体，停在预抓取位置</h1><p>根据实际 RGB-D 观测和腕部反馈规划接近路径，保持配置中的物体间距。</p><div id="mode" class="mode">正在读取当前部署配置…</div></div>
+<p id="error" class="error" role="alert" hidden></p><p id="activity" class="activity" role="status" aria-live="polite">等待服务连接</p>
+<section><div class="section-title"><div><b class="step">01</b><h2>观测与物体定位</h2></div><span id="observation-badge" class="badge">等待采集</span></div>
+<div class="observe-grid"><div><div class="camera"><canvas id="frame" width="640" height="480" aria-label="采集后拖动框选物体，或在下方输入像素坐标"></canvas><div id="empty"><strong>顶部 RGB-D 相机</strong><span>手动采集当前帧，再框选目标物体</span></div></div><p id="frame-info" class="small">尚未采集</p><label>物体框选 <span>像素坐标 x₁ y₁ x₂ y₂</span><input id="box" placeholder="拖动图像框选，或输入四个坐标" disabled autocomplete="off"></label></div>
+<div class="observe-controls"><button id="capture" class="primary" disabled>采集顶部 RGB-D</button><p class="small">使用当前帧的深度、内参和相机到 base_Link 标定变换。</p><label>当前物体模型<input id="mesh" readonly value="未配置"></label><div class="row"><button id="mask" disabled>生成 SAM 遮罩</button><button id="clear" disabled>重新框选</button></div><button id="estimate" class="primary" disabled>FoundationPose 定位</button><p id="mask-info" class="small">尚未生成遮罩</p><details><summary>当前服务配置</summary><p id="profile-name" class="small"></p><code id="fingerprint"></code></details></div></div>
+<div class="pose"><div><span>物体位置 · base_Link · m</span><strong id="position">—</strong></div><div><span>物体姿态 · WXYZ</span><strong id="quaternion">—</strong></div><div><span>观测来源</span><strong id="source">—</strong></div></div></section>
+<section><div class="section-title"><div><b class="step">02</b><h2>从当前腕部状态规划接近路径</h2></div><span id="plan-badge" class="badge">等待定位</span></div><p class="small">目标由物体几何、退让距离和腕部到 TCP 标定共同决定；腕部朝向根据接近方向计算。两侧配置由部署文件读取。</p>
+<div class="side-grid"><article><label class="check"><input id="left" type="checkbox" checked>左腕</label><dl id="left-settings"></dl></article><article><label class="check"><input id="right" type="checkbox" checked>右腕</label><dl id="right-settings"></dl></article></div>
+<div class="actions"><p class="small">点击后读取腕部反馈，执行 IK、关节限制和碰撞检查，生成同步时间轴。</p><button id="plan" class="primary" disabled>读取状态并规划</button><button id="download" disabled>导出计划 JSON</button></div>
+<div id="plan-result" class="result" hidden><strong id="plan-id"></strong><div id="plan-summary"></div><details><summary>查看完整计划与检查结果</summary><pre id="plan-json"></pre></details></div></section>
+<section><div class="section-title"><div><b class="step">03</b><h2>RViz 审核与模拟执行</h2></div><span id="execution-badge" class="badge">等待计划</span></div><p class="small">在独立可视化 ROS master 中查看物体、预抓取目标和完整关节轨迹。执行使用同一份计划及时间轴。</p><div id="rviz-handoff" hidden><label>在当前部署主机运行<pre id="rviz-command"></pre></label><p class="small">若浏览器与服务不在同一台主机，请使用上面的服务端计划文件路径。</p></div><label class="check review"><input id="reviewed" type="checkbox" disabled><span>已在 RViz 审核当前计划的整条接近路径和停止位置</span></label><div class="actions"><p id="execution-note" class="small">真实硬件执行通过命令行进行。</p><button id="execute" class="primary" disabled>执行当前模拟计划</button><button id="stop" disabled>停止模拟</button></div><pre id="job" hidden></pre></section>
+<footer>TRON2 deployment<span>标定 → 部署 → 观测 / 规划 / 预抓取</span></footer>
+</main></body></html>

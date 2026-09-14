@@ -1,0 +1,42 @@
+# Operating system and editor files
+.DS_Store
+**/.DS_Store
+.vscode/
+**/.vscode/
+.idea/
+**/.idea/
+
+# Python caches and test output
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local environments
+.venv/
+**/.venv/
+venv/
+**/venv/
+env/
+**/env/
+
+# Local deployment files and runtime output
+.local.yaml
+*.local.yaml
+*_local.yaml
+**/*.local.yaml
+**/*_local.yaml
+debug_images/
+**/debug_images/
+*.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/

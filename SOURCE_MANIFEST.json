@@ -1,0 +1,106 @@
+{
+  "source_repository": "https://github.com/Shukashuki/dexpipe",
+  "source_commit": "1e4a810de477bda7f621db553ecd496bb0884f2f",
+  "snapshot": "current working tree, including pending changes",
+  "ports": [
+    {
+      "source": "perception/fp_client.py",
+      "destination": "src/tron2_deployment/fp_client.py",
+      "source_sha256": "02a614971d794f58bad3a11a41ae7528646882ea0f20d71f925586264e3a155b",
+      "destination_sha256": "9916df9fa331635d5dd1b1bdfae9a79811b8fdb3e0dd01ebcaa49b07a3ae692a"
+    },
+    {
+      "source": "perception/fp_protocol.py",
+      "destination": "src/tron2_deployment/fp_protocol.py",
+      "source_sha256": "8d5082aa25af601a6a1a32efa4574c950f1158ac0cb16a1a632f7f6c852629f4",
+      "destination_sha256": "8d5082aa25af601a6a1a32efa4574c950f1158ac0cb16a1a632f7f6c852629f4"
+    },
+    {
+      "source": "perception/mask_client.py",
+      "destination": "src/tron2_deployment/mask_client.py",
+      "source_sha256": "cbcd90ad1570977ae897d1fa06415f131f8d1c4cfb9ac7259e6655ab65d46c7d",
+      "destination_sha256": "1b7b1275657af4e7e7ab52a0364e09968c4c0781984de822f3a9089505c136ae"
+    },
+    {
+      "source": "perception/mask_protocol.py",
+      "destination": "src/tron2_deployment/mask_protocol.py",
+      "source_sha256": "8b5881cb882e1c918fb304910036b97b1339e5505fafe6c264ccb1f9e966fbd8",
+      "destination_sha256": "8b5881cb882e1c918fb304910036b97b1339e5505fafe6c264ccb1f9e966fbd8"
+    },
+    {
+      "source": "hardware/handeye_calibration.py",
+      "destination": "src/tron2_deployment/handeye.py",
+      "source_sha256": "dd630cbf020876239fe34dc0d7ad11e9bb7d7e3e9ef2d1ef042c135d11b31e50",
+      "destination_sha256": "7dfae178f1c5a845caf6dc83bac2d3ee878f3329d3734dc304776360e7afbfea"
+    },
+    {
+      "source": "hardware/scene_calibration.py",
+      "destination": "src/tron2_deployment/scene_calibration.py",
+      "source_sha256": "ad81c824de7072cf35d7bbe3ab3ea4d03f327b6a1cd08b6610327dbf7fb9f728",
+      "destination_sha256": "8036399a4017c2244495f0765fe53c8da8db094332f76700ebb60effa62358db"
+    },
+    {
+      "source": "hardware/tron2_rgbd.py",
+      "destination": "src/tron2_deployment/rgbd.py",
+      "source_sha256": "0df4731dc3cea60ed45b39e00047015137d47b87ff14611b163e295d1aacb9fc",
+      "destination_sha256": "ff7cebc0ff67185b7608065cad98e9cfa8fc3157f6da8d6270f0e0ae05f55b19"
+    }
+  ],
+  "tron2_env": {
+    "upstream": "https://github.com/limxdynamics/tron2_env",
+    "commit": "03e39d3f7d66dcb096b41f03612fdab2f8c10ea5",
+    "local_patches_preserved": true,
+    "retained_patched_files": [
+      "README.md",
+      "README_CN.md",
+      "src/tron2_env/config.py",
+      "src/tron2_env/env.py",
+      "src/tron2_env/motion/controller.py",
+      "src/tron2_env/transport/websocket.py",
+      "tests/test_motion_controller.py",
+      "tests/test_transport.py"
+    ],
+    "excluded_source_paths": [
+      ".git",
+      ".github",
+      "examples"
+    ],
+    "downstream_packaging_change": "Use opencv-contrib-python as the sole cv2 provider, shared with the deployment package.",
+    "files_sha256": {
+      ".gitignore": "91e3b4b658fe319fe94d34e368a914c0b0b181085b8e6c8afe4af8f6a75addb8",
+      "CHANGELOG.md": "24ad19f2d1f35d382b48a64966150694b3c87d511ec331a845269977a338bd43",
+      "CONTRIBUTING.md": "b10eded83766ca68756d2f20a281b2762869ba2f464efebc0d62dc075fdc4425",
+      "LICENSE": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "MANIFEST.in": "0223aac89a21d919ca52cffbaad507111059499bdf49dd7ad439fd73a39d6798",
+      "NOTICE": "08e94fdade08112b411691e09156bb9b77feec4853290e3b336d3cb34bb52796",
+      "README.md": "550b4941f9de2a88b936f8189c242ddc56b5a8ba27e62772162f65712d3b366b",
+      "README_CN.md": "fc812b2bda813d010f358ba0b88b1a16e5741ba14ceadcfa9e0264619946075e",
+      "SECURITY.md": "d6a30f55cdf8d09891a8c029f7a3fa7bf1a1ea283cc2051a5459b0e3570281bc",
+      "THIRD_PARTY_DEPENDENCIES.md": "088f78fb0da28262806b5b0300b58770570aae181db0581d8c5b87ecc97aee64",
+      "pyproject.toml": "79efb4acf4ed3c0428cc1c7e406c763fd6b5a5f1b1aef68b096729ea3d1424c9",
+      "src/tron2_env/__init__.py": "a678edb0ef3ae4ef9519dc6482533e40d978d8890755c16a2f3136d0bfd51482",
+      "src/tron2_env/bridge.py": "a1909b34b681f420ce336aa66146196b24da0084867abb19edfcf2fee5f84bd1",
+      "src/tron2_env/camera.py": "e43c27cda1ee1c67f97247cf322a560833ed6263b54d3adc4d15f00cdb6cf065",
+      "src/tron2_env/config.py": "ff03f10d6ef017f8167be3169aa48a4c8b83e7ca33c225dd5223ea0fdc4cfb67",
+      "src/tron2_env/env.py": "52742c173513e6ace0c5c612c707758579ad85d9cf78c0cffb8534e6074e822f",
+      "src/tron2_env/errors.py": "5a9e02514632516f9e538209ce9b3d8299810995b2039f0804622f7cf91630a5",
+      "src/tron2_env/interpolation/__init__.py": "05faedcdb059b39ae746f48bf297f9a1f29bba7b96ac52a4118e494bb8bc7fda",
+      "src/tron2_env/interpolation/base.py": "be06bbf98d52a665e6fe11d2c4e6d02c34fe7d10cd623148f36a395a18f9c551",
+      "src/tron2_env/interpolation/linear.py": "8ff3e8490290bcbce1ca0a9a68b3014adffa88f134c36398c5c2c686bca63fc7",
+      "src/tron2_env/joints.py": "f2222563fde74db56806f88b08001aa3ad0c6d84444bea0d0cac4e7453b0d022",
+      "src/tron2_env/motion/__init__.py": "0b425358a42928acd0bb6bf681ac6d01bf689fae2052504a45dd294225749043",
+      "src/tron2_env/motion/controller.py": "1ce0bd1568e2a720cfcc787a7ac379e02cac9b71a09df1e71e1f3c1aedc9089a",
+      "src/tron2_env/rtc/__init__.py": "cec6c2a12c6ffa86f5054a73c8689d1d1e0693e1b9b2aaa5e0090dcc41a97603",
+      "src/tron2_env/rtc/action_queue.py": "9d64dcf2fe2e6862e4bbe4ec17dbecf647d389956bc246052658bfb6f38e67dc",
+      "src/tron2_env/rtc/latency_tracker.py": "bf379943b485c9dd2d367a50482ad2b243903164395e9a786ce278fe0c3ba98d",
+      "src/tron2_env/transport/__init__.py": "b0cf57139067857fec1707f78b03ef0da8b4ba61e1ba63c81eec2e7f476f202e",
+      "src/tron2_env/transport/base.py": "dedc757cd14ddf8e462b56675ea0f60f81164bec612b29cb5e3918a55c172751",
+      "src/tron2_env/transport/websocket.py": "3aef687ea04eb504895e65d33b213d14e1bd30726b45b082f506754d25fc0481",
+      "src/tron2_env/util.py": "4b99c31b45c3705e44262204a087a004217600a44d895cfeaccb84e832d012db",
+      "tests/test_action_queue.py": "d56a18c241dfc916dc974b34a737bf8ada97d1be2b1bb5328a3863737e81b144",
+      "tests/test_interpolation.py": "768a99e55be5aa9658b21c20f0d296f69b78be5689ba27eb02f20f652cadc3be",
+      "tests/test_motion_controller.py": "fc1f0e0ec9037dba1aee8fa1319851a4d13c07bc4a3dd3e01b98a860bb55cb30",
+      "tests/test_transport.py": "fbfdfaa9648f09e81a17e65aea7e0347ebb7dc70dae201cca34c8e24c78ae936"
+    }
+  }
+}
