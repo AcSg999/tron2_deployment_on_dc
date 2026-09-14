@@ -486,7 +486,7 @@ class Tron2RosHighRgbdCapture:
                 raise RuntimeError(
                     "ROS Noetic Python bindings are required for TRON2 camera "
                     f"capture; failed import: {error}. Install "
-                    "hardware/requirements-deploy.txt and source "
+                    "this package's ROS extras (pip install '.[ros]') and source "
                     "/opt/ros/noetic/setup.bash"
                 ) from error
             if not rospy.core.is_initialized():

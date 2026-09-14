@@ -1,24 +1,50 @@
-# Ubuntu 22.04 deployment
+# Deployment on the DC Ubuntu 20.04 device
 
 [简体中文](deployment.zh-CN.md) · [Workflow overview](../README.md) · [Previous: calibration](calibration.md) · [Next: pregrasp](pregrasp.md)
 
-Deploy on native Ubuntu 22.04 with Python 3.10. Install this environment before collecting live calibration. The current task is **object-aware wrist pregrasp**: approach a reviewed standoff pose and stop. The application sends no gripper commands and performs no contact or grasp action.
+Use the existing DC control host's environment: **Ubuntu 20.04.6 LTS, x86_64, glibc 2.31, application Python 3.10 and ROS Noetic**. This baseline was checked on the device; an Ubuntu 22.04 upgrade is not required. Install the project environment before collecting live calibration. The task remains **object-aware wrist pregrasp**: approach a reviewed standoff pose and stop, with no gripper commands or contact/grasp action.
+
+## Use the device's existing environment
+
+| Component | Verified on DC | Use in this workflow |
+| --- | --- | --- |
+| Operating system | Ubuntu 20.04.6 LTS, x86_64; glibc 2.31 | Keep the installed control-host OS. |
+| System Python | `/usr/bin/python3`, version 3.8.10 | Keep it for Ubuntu and installed ROS executables. |
+| Application Python | `/home/dc/mambaforge/bin/python3.10`, version 3.10.13 | Create the project's isolated `.venv`; both project packages require Python ≥3.10. |
+| ROS | Noetic at `/opt/ros/noetic` | Source its environment for camera messages and RViz publishing. |
+| RViz / robot_state_publisher | 1.14.20 / 1.15.2 | Use the installed visualization executables and matching robot URDF. |
+| FoundationPose / SAM | External GPU services configured through RPC endpoints | No local CUDA installation is required for these clients. |
+
+Check the device before selecting the interpreter:
+
+```bash
+cat /etc/os-release
+uname -m
+getconf GNU_LIBC_VERSION
+/usr/bin/python3 --version
+command -v python3.10
+python3.10 --version
+```
+
+These findings describe the DC host, not the robot controller or remote GPU server. On another device, record its actual OS, architecture and interpreter paths before adapting the setup. The dependency file below is validated for DC's Ubuntu 20.04/x86_64/Python 3.10 combination. The existing separate interpreter supplies Python 3.10 without replacing `/usr/bin/python3`; [Python's venv documentation](https://docs.python.org/3.10/library/venv.html) describes this separation.
 
 ## Install the standalone package
 
 ```bash
 sudo apt update
-sudo apt install -y python3.10-venv git libgl1 libglib2.0-0
+sudo apt install -y git libgl1 libglib2.0-0 build-essential
 git clone https://github.com/Shukashuki/tron2_deployment_on_dc.git
 cd tron2_deployment_on_dc
-bash scripts/install.sh
-.venv/bin/python -m pip check
+TRON2_PYTHON=/home/dc/mambaforge/bin/python3.10 bash scripts/install.sh
+.venv/bin/python -I -m pip check
 .venv/bin/tron2-deploy --help
 ```
 
-`scripts/install.sh` creates `.venv`, installs this package with its `bridge` and `dev` extras, and installs the patched runtime in `third_party/tron2_env`. Both packages use **`opencv-contrib-python` as the single provider of `cv2`**. Keep this environment separate from installations of `opencv-python` or either headless OpenCV wheel. No `dexpipe` checkout, Gaia20 SDK, RL pipeline or retargeting package is required.
+Install only missing OS packages. `TRON2_PYTHON` selects an existing Python 3.10 executable with `venv`/`ensurepip`; it defaults to `python3.10` on `PATH`. The shown path is the verified DC installation, including Python 3.10 headers; `netifaces` builds locally with the installed compiler. On another machine, use that machine's separate Python 3.10 installation and its matching headers. Ubuntu 20.04's system Python 3.8 cannot run this package; do not redirect `/usr/bin/python3` or assume Ubuntu 22.04's Python apt packages are available.
 
-The installer uses `constraints-ubuntu22-py310.txt`, recording the dependency versions tested in an isolated Linux/Python 3.10 installation. Updating these versions requires rerunning the tests and mock workflow; a changed MuJoCo version can also change the compiled model hash and requires renewed model/plan review.
+`scripts/install.sh` creates `.venv`, installs this package with its `bridge`, `dev` and `ros` helper extras, and installs the patched runtime in `third_party/tron2_env`. Installation ignores inherited Python package paths so ROS/system packages cannot silently satisfy virtual-environment dependencies. Both packages use **`opencv-contrib-python` as the single provider of `cv2`**. Keep this environment separate from installations of `opencv-python` or either headless OpenCV wheel. No `dexpipe` checkout, Gaia20 SDK, RL pipeline or retargeting package is required.
+
+The installer uses `constraints-ubuntu20-py310.txt`, recording dependency versions tested on the actual Ubuntu 20.04.6/glibc 2.31 host in an isolated Python 3.10 environment. Updating these versions requires rerunning the tests and mock workflow; a changed MuJoCo version can also change the compiled model hash and requires renewed model/plan review.
 
 Verify the software with synthetic inputs:
 
@@ -63,15 +89,17 @@ For `camera.backend="ros"`, configure `ros_master_uri`, the workstation's reacha
 
 Synchronize robot and workstation wall clocks. Capture uses the sensor timestamp, rejects frames older than `camera.max_frame_age_s`, and requires synchronized head feedback within the configured skew limits. A head position outside `calibration.head_tolerance_rad` is rejected; the fixed-head calibration does not track head motion automatically.
 
-ROS capture and RViz require an existing, tested ROS 1 environment compatible with the selected Python runtime. This installer does not install ROS Noetic, and a native Ubuntu 22.04 installation alone does not supply that environment. Install the Python helper extras and source the tested workspace, replacing the path below:
+Reuse the device's installed ROS Noetic environment. Noetic targets Ubuntu 20.04 and system Python 3.8; see [ROS REP 3](https://github.com/ros-infrastructure/rep/blob/master/rep-0003.rst#noetic-ninjemys-may-2020---may-2025). This application uses Noetic's Python messages and `rospy` from its separate Python 3.10 environment, while installed executables such as `roscore` retain system Python. The installer supplies Python 3.10 helper dependencies, including YAML and `netifaces`. Verify this combination without connecting to the robot:
 
 ```bash
-.venv/bin/python -m pip install '.[ros]'
-source /absolute/path/to/tested_ros1_workspace/devel/setup.bash
-.venv/bin/python -c "import rospy; import sensor_msgs.msg; import geometry_msgs.msg; import visualization_msgs.msg"
+source /opt/ros/noetic/setup.bash
+command -v roscore rosrun rviz
+.venv/bin/python -c "import yaml, netifaces, rospkg, defusedxml, rospy, rosgraph, genpy, message_filters; from sensor_msgs.msg import Image, CompressedImage, JointState; from geometry_msgs.msg import Point; from visualization_msgs.msg import Marker, MarkerArray; print('ROS imports OK')"
 ```
 
-The helper extras do not install `rospy`, ROS messages, `roscore`, `robot_state_publisher` or RViz. Confirm those come from the compatible ROS environment. Bridge capture does not require local ROS; RViz still does.
+If the current robot URDF requires packages from the existing DC workspace, additionally source `/home/dc/test_ws/devel/setup.bash`; use the actual workspace path on another device. The helper extras do not install `rospy`, ROS messages, `roscore`, `robot_state_publisher` or RViz; these come from the installed ROS environment. Bridge capture does not require local ROS, but RViz still does.
+
+The camera adapter decodes images directly with NumPy/OpenCV and does not use `cv_bridge`. The device's installed `cv_bridge` binary is linked to Python 3.8, so it is not a Python 3.10 dependency. Keep Python 3.8 system packages out of the project environment rather than adding `/usr/lib/python3/dist-packages` to its `PYTHONPATH`. Passing imports verifies software compatibility only; camera acquisition and physical execution still require the later checks.
 
 ## Connect FoundationPose and SAM
 

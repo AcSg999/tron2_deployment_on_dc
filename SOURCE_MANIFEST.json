@@ -43,7 +43,7 @@
       "source": "hardware/tron2_rgbd.py",
       "destination": "src/tron2_deployment/rgbd.py",
       "source_sha256": "0df4731dc3cea60ed45b39e00047015137d47b87ff14611b163e295d1aacb9fc",
-      "destination_sha256": "ff7cebc0ff67185b7608065cad98e9cfa8fc3157f6da8d6270f0e0ae05f55b19"
+      "destination_sha256": "cc379144ae094e9bc8dd9c12dfca30aec0b62673395b15fc8bccacbafa7fc49f"
     }
   ],
   "tron2_env": {

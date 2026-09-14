@@ -1,24 +1,50 @@
-# Ubuntu 22.04 部署
+# 在 DC 的 Ubuntu 20.04 设备上部署
 
 [English](deployment.md) · [工作流总览](../README.zh-CN.md) · [上一步：标定](calibration.zh-CN.md) · [下一步：预抓取](pregrasp.zh-CN.md)
 
-在原生 Ubuntu 22.04 上使用 Python 3.10 部署。采集真实标定数据前，先安装此环境。当前任务是**考虑物体几何的腕部预抓取**：接近经过审核的退让位姿并停止。应用不发送夹爪命令，不执行接触或抓取动作。
+沿用 DC 控制主机的现有环境：**Ubuntu 20.04.6 LTS、x86_64、glibc 2.31、应用 Python 3.10 和 ROS Noetic**。这些基线信息已在设备上核实，无需升级到 Ubuntu 22.04。采集真实标定数据前，先安装项目环境。任务仍是**考虑物体几何的腕部预抓取**：接近经过审核的退让位姿并停止，不发送夹爪命令，也不执行接触或抓取动作。
+
+## 沿用设备的现有环境
+
+| 组件 | DC 上已核实的信息 | 本流程中的用途 |
+| --- | --- | --- |
+| 操作系统 | Ubuntu 20.04.6 LTS、x86_64；glibc 2.31 | 保留控制主机现有操作系统。 |
+| 系统 Python | `/usr/bin/python3`，版本 3.8.10 | 保留给 Ubuntu 和已安装的 ROS 可执行程序使用。 |
+| 应用 Python | `/home/dc/mambaforge/bin/python3.10`，版本 3.10.13 | 创建项目独立的 `.venv`；两个项目软件包均要求 Python ≥3.10。 |
+| ROS | Noetic，位于 `/opt/ros/noetic` | 加载该环境，用于相机消息和 RViz 发布。 |
+| RViz / robot_state_publisher | 1.14.20 / 1.15.2 | 使用已安装的可视化程序和匹配的机器人 URDF。 |
+| FoundationPose / SAM | 通过 RPC 端点配置的外部 GPU 服务 | 这些客户端不要求本地安装 CUDA。 |
+
+选择解释器前，检查设备信息：
+
+```bash
+cat /etc/os-release
+uname -m
+getconf GNU_LIBC_VERSION
+/usr/bin/python3 --version
+command -v python3.10
+python3.10 --version
+```
+
+这些检查描述的是 DC 主机，不是机器人控制器或远程 GPU 服务器。在另一台设备上部署时，先记录其实际操作系统、架构和解释器路径，再调整配置。下方依赖文件已针对 DC 的 Ubuntu 20.04/x86_64/Python 3.10 组合验证。现有独立解释器提供 Python 3.10，无需替换 `/usr/bin/python3`；[Python venv 文档](https://docs.python.org/3.10/library/venv.html)说明了这种隔离方式。
 
 ## 安装独立软件包
 
 ```bash
 sudo apt update
-sudo apt install -y python3.10-venv git libgl1 libglib2.0-0
+sudo apt install -y git libgl1 libglib2.0-0 build-essential
 git clone https://github.com/Shukashuki/tron2_deployment_on_dc.git
 cd tron2_deployment_on_dc
-bash scripts/install.sh
-.venv/bin/python -m pip check
+TRON2_PYTHON=/home/dc/mambaforge/bin/python3.10 bash scripts/install.sh
+.venv/bin/python -I -m pip check
 .venv/bin/tron2-deploy --help
 ```
 
-`scripts/install.sh` 创建 `.venv`，安装本软件包及其 `bridge`、`dev` 可选依赖，并安装 `third_party/tron2_env` 中经过修补的运行时。两个软件包都使用 **`opencv-contrib-python` 作为唯一的 `cv2` 提供者**。此环境应与安装了 `opencv-python` 或任一种 headless OpenCV wheel 的环境分开。不需要 `dexpipe` 工作副本、Gaia20 SDK、RL 流水线或重定向软件包。
+只安装缺失的系统软件包。`TRON2_PYTHON` 用于选择已安装且带有 `venv`/`ensurepip` 的 Python 3.10 可执行文件，默认使用 `PATH` 中的 `python3.10`。示例路径是 DC 上已核实的安装位置，包含 Python 3.10 头文件；`netifaces` 使用已安装的编译器在本地构建。其他设备应使用其独立 Python 3.10 安装及匹配的头文件。Ubuntu 20.04 的系统 Python 3.8 无法运行本软件包；不要改写 `/usr/bin/python3` 的指向，也不要假设 Ubuntu 22.04 的 Python apt 软件包在此设备上可用。
 
-安装脚本使用 `constraints-ubuntu22-py310.txt`，记录在独立 Linux/Python 3.10 环境中验证过的依赖版本。更新版本后需重新运行测试和模拟工作流；MuJoCo 版本变化也可能改变编译模型哈希，需要重新审核模型和规划。
+`scripts/install.sh` 创建 `.venv`，安装本软件包及其 `bridge`、`dev` 和 `ros` 辅助依赖，并安装 `third_party/tron2_env` 中经过修补的运行时。安装时忽略继承的 Python 软件包路径，避免将 ROS/系统包误认为已安装的虚拟环境依赖。两个软件包都使用 **`opencv-contrib-python` 作为唯一的 `cv2` 提供者**。此环境应与安装了 `opencv-python` 或任一种 headless OpenCV wheel 的环境分开。不需要 `dexpipe` 工作副本、Gaia20 SDK、RL 流水线或重定向软件包。
+
+安装脚本使用 `constraints-ubuntu20-py310.txt`，记录在实际 Ubuntu 20.04.6/glibc 2.31 主机的独立 Python 3.10 环境中验证过的依赖版本。更新版本后需重新运行测试和模拟工作流；MuJoCo 版本变化也可能改变编译模型哈希，需要重新审核模型和规划。
 
 使用合成输入验证软件：
 
@@ -63,15 +89,17 @@ cp configs/robot.example.json configs/local-robot-seed.json
 
 同步机器人和工作站的系统时钟。采集使用传感器时间戳，拒绝超过 `camera.max_frame_age_s` 的帧，并要求头部反馈满足配置的时间偏差限制。头姿偏离 `calibration.head_tolerance_rad` 时会拒绝采集；固定头姿标定不会自动跟随头部运动。
 
-ROS 采集和 RViz 需要已有、经过测试且与所选 Python 运行时兼容的 ROS 1 环境。此安装脚本不会安装 ROS Noetic，仅安装原生 Ubuntu 22.04 也不会提供该环境。安装 Python 辅助依赖并加载已测试工作空间，替换下方路径：
+复用设备已安装的 ROS Noetic 环境。Noetic 面向 Ubuntu 20.04 和系统 Python 3.8，参见 [ROS REP 3](https://github.com/ros-infrastructure/rep/blob/master/rep-0003.rst#noetic-ninjemys-may-2020---may-2025)。本应用在独立 Python 3.10 环境中使用 Noetic 的 Python 消息和 `rospy`，而 `roscore` 等已安装的可执行程序继续使用系统 Python。安装脚本会提供 Python 3.10 的辅助依赖，包括 YAML 和 `netifaces`。无需连接机器人即可验证该组合：
 
 ```bash
-.venv/bin/python -m pip install '.[ros]'
-source /absolute/path/to/tested_ros1_workspace/devel/setup.bash
-.venv/bin/python -c "import rospy; import sensor_msgs.msg; import geometry_msgs.msg; import visualization_msgs.msg"
+source /opt/ros/noetic/setup.bash
+command -v roscore rosrun rviz
+.venv/bin/python -c "import yaml, netifaces, rospkg, defusedxml, rospy, rosgraph, genpy, message_filters; from sensor_msgs.msg import Image, CompressedImage, JointState; from geometry_msgs.msg import Point; from visualization_msgs.msg import Marker, MarkerArray; print('ROS imports OK')"
 ```
 
-辅助依赖不会安装 `rospy`、ROS 消息、`roscore`、`robot_state_publisher` 或 RViz；需确认这些组件来自兼容的 ROS 环境。Bridge 采集不需要本地 ROS，但 RViz 仍然需要。
+如果当前机器人 URDF 依赖 DC 现有工作空间中的软件包，再加载 `/home/dc/test_ws/devel/setup.bash`；其他设备使用其实际工作空间路径。辅助依赖不会安装 `rospy`、ROS 消息、`roscore`、`robot_state_publisher` 或 RViz，这些组件来自已安装的 ROS 环境。Bridge 采集不需要本地 ROS，但 RViz 仍然需要。
+
+相机适配器直接使用 NumPy/OpenCV 解码图像，不使用 `cv_bridge`。设备上已安装的 `cv_bridge` 二进制链接到 Python 3.8，因此不应作为 Python 3.10 的依赖。不要通过给项目 `PYTHONPATH` 添加 `/usr/lib/python3/dist-packages` 来混入 Python 3.8 系统软件包。导入成功只验证软件兼容性，相机采集和真实执行仍需完成后续检查。
 
 ## 连接 FoundationPose 和 SAM
 

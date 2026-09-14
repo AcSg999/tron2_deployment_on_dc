@@ -9,10 +9,10 @@ The object pose informs target geometry; its quaternion is not copied to the wri
 | Stage | Guide | Output |
 | --- | --- | --- |
 | 1. Calibration | [Calibration](docs/calibration.md) | Intrinsics, hand-eye samples/solve, independent validation and accepted deployment profile |
-| 2. Deployment | [Ubuntu 22.04](docs/deployment.md) | Installed runtime, configured camera/vision/robot connections and compact operator |
+| 2. Deployment | [DC device: Ubuntu 20.04](docs/deployment.md) | Installed runtime, configured camera/vision/robot connections and compact operator |
 | 3. Planning and execution | [Pregrasp workflow](docs/pregrasp.md) | Checked dual-arm plan, RViz review, preflight and measured execution log |
 
-Install the environment before acquiring live calibration. Keep both guide languages synchronized.
+The verified DC host runs Ubuntu 20.04.6 on x86_64, with glibc 2.31, a separate Python 3.10.13 installation and ROS Noetic. Use that existing device environment; keep Ubuntu's system Python 3.8 unchanged. Install the project environment before acquiring live calibration; see the [device setup](docs/deployment.md) for interpreter selection and ROS checks. Keep both guide languages synchronized.
 
 ## Try the complete mock workflow
 
