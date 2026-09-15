@@ -4,7 +4,7 @@
 
 The first route uses the top RGB-D camera at a fixed, measured head pose. Calibrate the color camera, solve its transform into `base_Link`, and independently validate that transform before preparing pregrasp targets. Record both wrist frames and their TCP mounting transforms. This workflow sends no gripper commands.
 
-Launch calibration from the CLI, then use the [visual capture guide](calibration_visualization.md) to preview the board, capture samples and solve. The page shows progress and a compact result with the next action. Profile updates and independent validation stay in the existing CLI workflow.
+Launch `calibration-guide` from the CLI, then use its browser page to preview the board, capture samples and solve, following the steps below. The page shows progress and a compact result with the next action. Profile updates and independent validation stay in the existing CLI workflow.
 
 ## Prepare the profile and measurements
 
@@ -27,7 +27,7 @@ Start the helper from the repository root in the configured camera environment. 
 
 Open the printed URL, normally `http://127.0.0.1:8790`. Click **Preview** to check board visibility and corner detection, then **Capture and save a new sample** for a fresh accepted view. Move the board across the image and vary its distance and tilt; keep the camera resolution and head pose fixed. The helper saves original, unrectified images under `view-*/color.png`. Capturing reads the camera again; it does not save a possibly old preview.
 
-Collect at least five accepted views, then click **Solve**. Check the displayed RMS, result path and next instruction. The minimum sample count and a small fit error alone do not establish accuracy; avoid repeated views clustered at the image center. Capture issues and suggested corrections are described in the [visual guide](calibration_visualization.md).
+Collect at least five accepted views, then click **Solve**. Check the displayed RMS, result path and next instruction. The minimum sample count and a small fit error alone do not establish accuracy; avoid repeated views clustered at the image center. If the board is not detected, show the whole board, reduce blur or glare, and check the inner-corner count. If a view is too similar, change the board position or tilt before capturing again.
 
 After solving, stop the helper with Ctrl-C and apply the saved intrinsic result:
 
@@ -42,7 +42,7 @@ Applying the fit updates `K`, distortion, and image dimensions. It invalidates p
 
 ## Collect stationary hand-eye samples with visual guidance
 
-For the fixed top camera, the supported solve is **eye-to-hand**. Rigidly attach the board to the selected wrist. Restart the helper with the updated intrinsic profile and an explicit side:
+For the fixed top camera, the supported solve is **eye-to-hand**: the camera and head stay fixed while a board rigidly attached to the selected wrist moves with that wrist. The result maps camera coordinates into `base_Link`. Restart the helper with the updated intrinsic profile and an explicit side:
 
 ```bash
 .venv/bin/tron2-deploy calibration-guide \
@@ -51,7 +51,13 @@ For the fixed top camera, the supported solve is **eye-to-hand**. Rigidly attach
   --output calibration_data/handeye-left-guided
 ```
 
-Open the printed URL. Reposition the arm using the robot's separately reviewed interface, wait for it to settle, preview the board, and capture a sample. The helper never commands the arm. At least five accepted samples and wrist rotations spanning at least 15 degrees are required. Use varied rotation directions and translations; the board must stay fixed to the wrist.
+Open the printed URL, normally `http://127.0.0.1:8790`. Use this collection loop:
+
+1. Click **Preview** and check that the whole board and its detected corners are visible.
+2. Reposition the wrist through the robot's separately reviewed controls. Vary rotation axes and position while keeping the board visible and the head fixed.
+3. Wait for the arm and board to settle, then click **Capture and save a new sample**. Check the saved count and displayed wrist rotation change before repeating.
+
+The helper guides sample collection; wrist positioning remains manual, and it does not generate the next wrist pose. **Solve** becomes available after at least five accepted samples and at least one wrist orientation differing from the first sample by 15 degrees or more. This is the minimum solver requirement, not an accuracy check or a requirement to rotate 15 degrees at every step. Use rotations about different axes and keep the board's mounting unchanged.
 
 The collector brackets the image with fresh joint feedback and rejects arm/head motion, excessive timestamp skew, and head-only synchronization fallback. All samples must use the same side, camera, board, source and stationary head pose. Failed captures do not increase the accepted count; correct the displayed issue and capture again.
 
@@ -128,6 +134,6 @@ Use these CLI result paths in the validation and application step if you chose t
 
 For each side, record `pregrasp.<side>.wrist_to_tcp_pose7` as `[x,y,z,qw,qx,qy,qz]`: the TCP frame expressed in the configured wrist body frame, with translation in metres and a unit quaternion. Obtain it from the installed mount geometry and independent measurements. TCP `+Z` is the inward approach axis; TCP `+Y` is the roll/up reference used by target selection. An identity transform is valid only when these physical frames coincide.
 
-Measure `scene.table_z_m` in `base_Link`; choose `scene.object_radius_m` to enclose the entire registered object mesh about its pose origin. Retain the session directories, raw images, sample files, both solves when available, held-out measurements, mount measurements, and accepted model revision. For an unexpected fit or failed point check, the [optional diagnostics](calibration_visualization.md#optional-diagnostics) show more detail; retain generated reports with their inputs. The helper and reports do not apply calibration or enable execution. A passed extrinsic fit does not verify collision geometry, wrist mounting, transport timing, or stop behavior.
+Measure `scene.table_z_m` in `base_Link`; choose `scene.object_radius_m` to enclose the entire registered object mesh about its pose origin. Retain the session directories, raw images, sample files, both solves when available, held-out measurements, mount measurements, and accepted model revision. For an unexpected fit or failed point check, use `.venv/bin/tron2-deploy calibration-report --help` to see the optional diagnostic report inputs; retain generated reports with their inputs. The helper and reports do not apply calibration or enable execution. A passed extrinsic fit does not verify collision geometry, wrist mounting, transport timing, or stop behavior.
 
 Moving the head away from the calibrated pose invalidates this fixed-head route. Restore that measured pose or recalibrate; the service does not extrapolate a camera/head kinematic chain. Continue with [deployment](deployment.md), then [pregrasp planning](pregrasp.md).

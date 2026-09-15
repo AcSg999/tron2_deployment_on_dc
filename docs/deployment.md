@@ -46,7 +46,7 @@ Install only missing OS packages. `TRON2_PYTHON` selects an existing Python 3.10
 
 The installer uses `constraints-ubuntu20-py310.txt`, recording dependency versions tested on the actual Ubuntu 20.04.6/glibc 2.31 host in an isolated Python 3.10 environment. Updating these versions requires rerunning the tests and mock workflow; a changed MuJoCo version can also change the compiled model hash and requires renewed model/plan review.
 
-For calibration, `calibration-guide` starts a separate local browser helper on port `8790`: preview the board, capture samples, then solve. It reads the camera only after an explicit browser action; start it with the camera's ROS environment when using ROS capture. Applying results remains an explicit CLI step. Matplotlib supports optional offline diagnostics through `calibration-report`. See the [visual capture guide](calibration_visualization.md).
+For calibration, `calibration-guide` starts a separate local browser helper on port `8790`: preview the board, capture samples, then solve. It reads the camera only after an explicit browser action; start it with the camera's ROS environment when using ROS capture. Applying results remains an explicit CLI step. Matplotlib supports optional offline diagnostics through `calibration-report`. See the [calibration workflow](calibration.md).
 
 Package downloads and isolated build dependencies use `https://pypi.org/simple` by default. The installer sets this index only for its own process and children; it does not rewrite your global pip configuration. To select another working index explicitly, set `TRON2_PIP_INDEX_URL` when running the script. This uses [pip's documented configuration precedence](https://pip.pypa.io/en/stable/topics/configuration/#precedence-override-order).
 
