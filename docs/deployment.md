@@ -46,6 +46,10 @@ Install only missing OS packages. `TRON2_PYTHON` selects an existing Python 3.10
 
 The installer uses `constraints-ubuntu20-py310.txt`, recording dependency versions tested on the actual Ubuntu 20.04.6/glibc 2.31 host in an isolated Python 3.10 environment. Updating these versions requires rerunning the tests and mock workflow; a changed MuJoCo version can also change the compiled model hash and requires renewed model/plan review.
 
+Package downloads and isolated build dependencies use `https://pypi.org/simple` by default. The installer sets this index only for its own process and children; it does not rewrite your global pip configuration. To select another working index explicitly, set `TRON2_PIP_INDEX_URL` when running the script. This uses [pip's documented configuration precedence](https://pip.pypa.io/en/stable/topics/configuration/#precedence-override-order).
+
+If an earlier installation reported TLS errors from the Tsinghua mirror followed by `No matching distribution found for setuptools` or a missing `.venv/bin/tron2-deploy`, package installation did not finish. Rerun the updated `bash scripts/install.sh`; it reuses the existing Python 3.10 venv and retrieves the missing packages from PyPI. TLS certificate verification remains enabled. Start the frontend after the installer completes and verifies the CLI entry point.
+
 Verify the software with synthetic inputs:
 
 ```bash

@@ -12,6 +12,10 @@ if [[ -e .venv ]]; then
 else
     "$tron2_python" -I -m venv .venv
 fi
-.venv/bin/python -I -m pip install --upgrade pip
-.venv/bin/python -I -m pip install -c constraints-ubuntu20-py310.txt '.[bridge,dev,ros]' ./third_party/tron2_env
+# Keep this choice local to the installer and its build subprocesses.
+export PIP_INDEX_URL="${TRON2_PIP_INDEX_URL:-https://pypi.org/simple}"
+.venv/bin/python -I -m pip install --index-url "$PIP_INDEX_URL" --upgrade pip
+.venv/bin/python -I -m pip install --index-url "$PIP_INDEX_URL" -c constraints-ubuntu20-py310.txt '.[bridge,dev,ros]' ./third_party/tron2_env
 .venv/bin/python -I -m pip check
+.venv/bin/tron2-deploy --help >/dev/null
+echo "Installed. Start the mock frontend with: .venv/bin/tron2-deploy operator --profile configs/demo.json --mock"
