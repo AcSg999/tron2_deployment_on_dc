@@ -4,6 +4,8 @@
 
 The first route uses the top RGB-D camera at a fixed, measured head pose. Calibrate the color camera, solve its transform into `base_Link`, and independently validate that transform before preparing pregrasp targets. Record both wrist frames and their TCP mounting transforms. This workflow sends no gripper commands.
 
+Calibration stays in the CLI. Generate [offline visual reports](calibration_visualization.md) after the intrinsic fit and hand-eye solve, then inspect them before applying results. Reports open directly in a browser and do not require the operator service or ROS.
+
 ## Prepare the profile and measurements
 
 Copy `configs/robot.example.json` to `configs/local-robot-seed.json` as described in [deployment](deployment.md), then replace every null and `REPLACE` value. Set the physical camera identity, image dimensions, initial color intrinsics/distortion, depth intrinsics, depth-to-color transform, camera transport, measured head position, actual robot model/joint mappings, and table height before acquisition. The current live RGB-D route uses 640 × 480 images. Factory camera parameters can seed acquisition; they are not evidence that calibration has passed. Keep `calibration.verified`, `execution.allow_real`, and `execution.hold_behavior_verified` false. The template's identity camera-to-base transform is an unverified acquisition placeholder; never use it to plan motion.
@@ -30,6 +32,17 @@ python -m tron2_deployment.cli intrinsics \
   --pattern 9x6 --square-m 0.025 \
   --output calibration_data/intrinsics.json
 
+python -m tron2_deployment.cli calibration-report \
+  --intrinsics calibration_data/intrinsics.json \
+  --images 'calibration_data/intrinsics/view-*/color.png' \
+  --output output/intrinsics-review
+
+xdg-open output/intrinsics-review/index.html
+```
+
+Inspect the detected-corner/reprojection overlays, original versus undistorted images, coverage, and per-view pixel errors. Investigate outliers and poor coverage before proceeding. These fit diagnostics use the calibration views and do not establish independent accuracy. Every report output directory must be new or empty. When the intrinsic JSON's saved image paths still resolve, `--images` can be omitted.
+
+```bash
 python -m tron2_deployment.cli apply-intrinsics \
   --profile configs/local-robot-seed.json \
   --intrinsics calibration_data/intrinsics.json \
@@ -77,7 +90,22 @@ np.savez('calibration_data/heldout_points.npz',
 PY
 ```
 
-The following example accepts a maximum point error of 5 mm. Choose the actual threshold from the deployment's measurement and clearance budget before running it:
+The following example accepts a maximum point error of 5 mm. Choose the actual threshold from the deployment's measurement and clearance budget before running it. Generate a report first:
+
+```bash
+python -m tron2_deployment.cli calibration-report \
+  --handeye calibration_data/handeye-left.json \
+  --samples 'calibration_data/handeye-left/*.json' \
+  --validation-points calibration_data/heldout_points.npz \
+  --max-error-m 0.005 \
+  --output output/handeye-review
+
+xdg-open output/handeye-review/index.html
+```
+
+Check the wrist-pose spread and target-in-wrist consistency, then compare the transformed held-out points with their independently measured base-frame references. The report shows residual vectors and per-point errors against the chosen threshold. A failed held-out check still produces the report, and the CLI exits with status 1. Without held-out measurements, the report remains unverified; small fit residuals alone do not demonstrate accuracy. See [the visualization guide](calibration_visualization.md) for interpretation.
+
+After reviewing passing independent validation, apply the result with the same measurements and threshold:
 
 ```bash
 python -m tron2_deployment.cli apply-calibration \
@@ -95,6 +123,6 @@ This command requires a real eye-to-hand solve with the matching camera identity
 
 For each side, record `pregrasp.<side>.wrist_to_tcp_pose7` as `[x,y,z,qw,qx,qy,qz]`: the TCP frame expressed in the configured wrist body frame, with translation in metres and a unit quaternion. Obtain it from the installed mount geometry and independent measurements. TCP `+Z` is the inward approach axis; TCP `+Y` is the roll/up reference used by target selection. An identity transform is valid only when these physical frames coincide.
 
-Measure `scene.table_z_m` in `base_Link`; choose `scene.object_radius_m` to enclose the entire registered object mesh about its pose origin. Retain the raw images, sample files, both solves when available, held-out measurements, error report, mount measurements, and accepted model revision. A passed extrinsic fit does not verify collision geometry, wrist mounting, transport timing, or stop behavior.
+Measure `scene.table_z_m` in `base_Link`; choose `scene.object_radius_m` to enclose the entire registered object mesh about its pose origin. Retain the raw images, sample files, both solves when available, held-out measurements, visual report directories and their `metrics.json`, mount measurements, and accepted model revision. Reports do not apply calibration or enable execution. A passed extrinsic fit does not verify collision geometry, wrist mounting, transport timing, or stop behavior.
 
 Moving the head away from the calibrated pose invalidates this fixed-head route. Restore that measured pose or recalibrate; the service does not extrapolate a camera/head kinematic chain. Continue with [deployment](deployment.md), then [pregrasp planning](pregrasp.md).

@@ -1,6 +1,7 @@
 """Explicit command-line stages from calibration to reviewed pregrasp execution."""
 import argparse
 import glob
+import hashlib
 import json
 from pathlib import Path
 import signal
@@ -12,6 +13,101 @@ from .config import load_profile, write_json
 
 def read_json(path):
     return json.loads(Path(path).read_text())
+
+
+def calibration_report_command(args):
+    """Inspect saved evidence without changing calibration or connecting hardware."""
+    import numpy as np
+    from .calibration_diagnostics import (
+        intrinsic_diagnostics, handeye_diagnostics, heldout_diagnostics,
+    )
+    from .calibration_report import write_calibration_report
+
+    if not args.intrinsics and not args.handeye:
+        raise ValueError("provide --intrinsics, --handeye, or both")
+    if args.images and not args.intrinsics:
+        raise ValueError("--images requires --intrinsics")
+    if args.samples and not args.handeye:
+        raise ValueError("--samples requires --handeye")
+    if args.validation_points and not args.handeye:
+        raise ValueError("--validation-points requires --handeye")
+    if bool(args.validation_points) != (args.max_error_m is not None):
+        raise ValueError("provide --validation-points and --max-error-m together")
+    output = Path(args.output)
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError("report output must be a new or empty directory")
+
+    def matched(pattern, name):
+        paths = [Path(p).resolve() for p in sorted(glob.glob(pattern))]
+        if not paths:
+            raise ValueError(f"{name} matched no files: {pattern}")
+        return paths
+
+    def provenance(path):
+        path = Path(path).resolve()
+        return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    intrinsic = handeye = heldout = None
+    if args.intrinsics:
+        source_path = Path(args.intrinsics).resolve()
+        calibration = read_json(source_path)
+        if args.images:
+            images = matched(args.images, "--images")
+            fit_images = []
+            for name in calibration.get("images", []):
+                image = Path(name).expanduser()
+                candidates = {image.resolve()} if image.is_absolute() else {
+                    image.resolve(), (source_path.parent / image).resolve()}
+                available = [p for p in candidates if p.exists()]
+                if len(available) == 1:
+                    fit_images.append(str(available[0]))
+                else:
+                    selected = [p for p in available if p in images]
+                    if len(selected) == 1:
+                        fit_images.append(str(selected[0]))
+            calibration["images"] = fit_images
+        else:
+            images = []
+            for name in calibration.get("images", []):
+                image = Path(name).expanduser()
+                if not image.is_absolute():
+                    local = image.resolve()
+                    adjacent = (source_path.parent / image).resolve()
+                    if local.exists() and adjacent.exists() and local != adjacent:
+                        raise ValueError(f"ambiguous calibration image {name}; provide --images explicitly")
+                    image = local if local.exists() else adjacent
+                images.append(image.resolve())
+            if not images:
+                raise ValueError("intrinsic JSON has no images; provide --images with original calibration views")
+            calibration["images"] = [str(p) for p in images]
+        intrinsic = intrinsic_diagnostics(calibration, images)
+        intrinsic["input_file"] = provenance(source_path)
+    if args.handeye:
+        source_path = Path(args.handeye).resolve()
+        calibration = read_json(source_path)
+        sample_paths = matched(args.samples, "--samples") if args.samples else []
+        handeye = handeye_diagnostics(calibration, [read_json(p) for p in sample_paths],
+                                      sample_labels=[p.name for p in sample_paths])
+        handeye["input_file"] = provenance(source_path)
+        handeye["sample_files"] = [provenance(p) for p in sample_paths]
+        if args.validation_points:
+            with np.load(args.validation_points, allow_pickle=False) as data:
+                heldout = heldout_diagnostics(handeye["camera_to_base"],
+                    data["points_camera"], data["points_base"], args.max_error_m)
+            heldout["input_file"] = provenance(args.validation_points)
+            heldout["calibration_file"] = provenance(source_path)
+    result = write_calibration_report(output, intrinsic=intrinsic, handeye=handeye,
+                                      heldout=heldout, title=args.title)
+    result.update(calibration_applied=False, hardware_commanded=False)
+    if intrinsic is not None and intrinsic["accepted_count"] == 0:
+        result["status"] = "failed"
+        result["reason"] = "no usable chessboard views; inspect the saved report"
+    elif heldout is not None and not heldout["passed"]:
+        result["status"] = "failed"
+        result["reason"] = "held-out point errors exceed the requested tolerance; inspect the saved report"
+    else:
+        result["status"] = "report_written"
+    return result
 
 
 def demo(output):
@@ -43,6 +139,15 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("demo", help="run synthetic calibration-to-pregrasp pipeline")
     p.add_argument("--output", default="output/demo")
+    p = commands.add_parser("calibration-report", help="write offline HTML/PNG calibration diagnostics from saved evidence")
+    p.add_argument("--intrinsics", help="intrinsic calibration JSON")
+    p.add_argument("--images", help="quoted glob for original images; defaults to the intrinsic JSON image list")
+    p.add_argument("--handeye", help="fixed-camera eye-to-hand solve JSON")
+    p.add_argument("--samples", help="quoted glob for stationary hand-eye sample JSON files")
+    p.add_argument("--validation-points", help="NPZ with independent points_camera and points_base")
+    p.add_argument("--max-error-m", type=float, help="maximum held-out point error in metres")
+    p.add_argument("--title", default="Calibration review", help="report title; label synthetic examples explicitly")
+    p.add_argument("--output", required=True, help="new or empty report directory")
     for name in ("operator", "capture", "state", "plan", "execute", "model-hash", "record-sample", "apply-intrinsics", "apply-calibration"):
         p = commands.add_parser(name)
         p.add_argument("--profile", required=True)
@@ -86,7 +191,9 @@ def main(argv=None):
     p.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "demo":
+        if args.command == "calibration-report":
+            result = calibration_report_command(args)
+        elif args.command == "demo":
             result = demo(args.output)
         elif args.command == "intrinsics":
             from .calibration import intrinsic_fit

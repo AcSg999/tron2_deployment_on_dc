@@ -8,7 +8,7 @@ The object pose informs target geometry; its quaternion is not copied to the wri
 
 | Stage | Guide | Output |
 | --- | --- | --- |
-| 1. Calibration | [Calibration](docs/calibration.md) | Intrinsics, hand-eye samples/solve, independent validation and accepted deployment profile |
+| 1. Calibration | [Calibration](docs/calibration.md) · [Visual review](docs/calibration_visualization.md) | Intrinsics, hand-eye samples/solve, visual reports, independent validation and accepted deployment profile |
 | 2. Deployment | [DC device: Ubuntu 20.04](docs/deployment.md) | Installed runtime, configured camera/vision/robot connections and compact operator |
 | 3. Planning and execution | [Pregrasp workflow](docs/pregrasp.md) | Checked dual-arm plan, RViz review, preflight and measured execution log |
 
@@ -26,9 +26,11 @@ bash scripts/install.sh
 
 Open `http://127.0.0.1:8787`. The demo uses synthetic RGB-D, a toy dual-arm model and simulated feedback. It exercises validation, estimation, orientation-aware targets, IK, collision/limit checks, timed motion and logs. It does not establish hardware readiness. Live execution is an explicit CLI operation; the browser executes mock plans only.
 
+Calibration remains in the CLI. Use `tron2-deploy calibration-report` to generate an offline HTML report with image overlays, reprojection errors, hand-eye consistency plots and held-out point validation. Open its `index.html` directly in a browser; no operator service or ROS session is needed. Review the report before applying the calibration. See [calibration visualization](docs/calibration_visualization.md) for commands and interpretation.
+
 ## Implementation and limits
 
-The planner follows a lift–transit–descend corridor and fails if IK or collision checks reject it. It does not search arbitrary obstacle routes. The object is conservatively enclosed by a configured sphere. Numeric MuJoCo supplies FK/IK and collision queries; **RViz is the only visual review step**. The deployment model must represent the actual fixed base and installed attachments, with only the mapped 14 arm and 2 head joints movable. Uncommanded attachments remain fixed and retain collision geometry.
+The planner follows a lift–transit–descend corridor and fails if IK or collision checks reject it. It does not search arbitrary obstacle routes. The object is conservatively enclosed by a configured sphere. Numeric MuJoCo supplies FK/IK and collision queries; **RViz is the trajectory viewer**. The deployment model must represent the actual fixed base and installed attachments, with only the mapped 14 arm and 2 head joints movable. Uncommanded attachments remain fixed and retain collision geometry.
 
 Plans bind the object observation, calibration/profile fingerprint, compiled model hash, initial feedback, target poses and exact time interpolation. Real execution requires fresh real observations/feedback, reviewed plan identity, accepted calibration/model/hold behavior, and explicit supervision confirmation. Hardware timing, model accuracy, calibration and hold behavior remain deployment acceptance work; see [operation and stopping](docs/operation.md).
 

@@ -4,6 +4,8 @@
 
 首条流程使用顶部 RGB-D 相机，并将头部保持在经过测量的固定姿态。先标定彩色相机，求解其到 `base_Link` 的变换，再独立验证该变换，之后才能准备预抓取目标。记录左右腕部坐标系及各自的 TCP 安装变换。此流程不发送夹爪指令。
 
+标定继续通过 CLI 完成。内参拟合与手眼求解后，生成[离线可视化报告](calibration_visualization.zh-CN.md)，检查后再应用结果。报告可直接在浏览器中打开，无需启动操作服务或 ROS。
+
 ## 准备配置与测量数据
 
 按照[部署文档](deployment.zh-CN.md)将 `configs/robot.example.json` 复制为 `configs/local-robot-seed.json`，然后替换所有 null 和 `REPLACE` 值。采集前必须填写实际相机标识、图像尺寸、初始彩色内参与畸变、深度内参、深度到彩色的变换、相机传输方式、实测头部位置、实际机器人模型与关节映射，以及桌面高度。当前实机 RGB-D 流程使用 640 × 480 图像。相机出厂参数可用于启动采集，但不能作为标定通过的证据。保持 `calibration.verified`、`execution.allow_real` 和 `execution.hold_behavior_verified` 为 false。模板中的单位相机到基座变换只是未经验证的采集占位值，不能用于运动规划。
@@ -30,6 +32,17 @@ python -m tron2_deployment.cli intrinsics \
   --pattern 9x6 --square-m 0.025 \
   --output calibration_data/intrinsics.json
 
+python -m tron2_deployment.cli calibration-report \
+  --intrinsics calibration_data/intrinsics.json \
+  --images 'calibration_data/intrinsics/view-*/color.png' \
+  --output output/intrinsics-review
+
+xdg-open output/intrinsics-review/index.html
+```
+
+检查检测角点与重投影叠加图、原始与去畸变图像对比、覆盖范围，以及逐视角像素误差。继续前先排查异常视角和覆盖不足的问题。这些拟合诊断使用标定视角，不能证明独立精度。每次报告的输出目录必须不存在或为空。若内参 JSON 保存的图像路径仍可解析，可以省略 `--images`。
+
+```bash
 python -m tron2_deployment.cli apply-intrinsics \
   --profile configs/local-robot-seed.json \
   --intrinsics calibration_data/intrinsics.json \
@@ -77,7 +90,22 @@ np.savez('calibration_data/heldout_points.npz',
 PY
 ```
 
-以下示例允许最大点误差为 5 mm。运行前，应依据部署的测量与间隙预算确定实际阈值：
+以下示例允许最大点误差为 5 mm。运行前，应依据部署的测量与间隙预算确定实际阈值。先生成报告：
+
+```bash
+python -m tron2_deployment.cli calibration-report \
+  --handeye calibration_data/handeye-left.json \
+  --samples 'calibration_data/handeye-left/*.json' \
+  --validation-points calibration_data/heldout_points.npz \
+  --max-error-m 0.005 \
+  --output output/handeye-review
+
+xdg-open output/handeye-review/index.html
+```
+
+检查腕部姿态覆盖与标定板在腕部坐标系中的一致性，再将变换后的保留点与独立测得的基座系参考坐标比较。报告显示残差向量，以及逐点误差与所选阈值的对比。保留点验证失败时仍会生成报告，同时 CLI 以状态码 1 退出。没有保留点测量时，报告维持未验证状态；仅凭很小的拟合残差不能证明精度。判读方法见[可视化指南](calibration_visualization.zh-CN.md)。
+
+检查独立验证通过的结果后，使用相同测量数据和阈值应用标定：
 
 ```bash
 python -m tron2_deployment.cli apply-calibration \
@@ -95,6 +123,6 @@ python -m tron2_deployment.cli apply-calibration \
 
 分别记录 `pregrasp.<side>.wrist_to_tcp_pose7`，格式为 `[x,y,z,qw,qx,qy,qz]`：表示 TCP 坐标系在配置的腕部刚体坐标系中的位姿，平移单位为米，四元数必须归一化。该变换应来自实际安装几何和独立测量。TCP `+Z` 是朝向物体的接近轴，TCP `+Y` 是目标选择时使用的滚转/向上参考。只有两个实际坐标系重合时，单位变换才有效。
 
-在 `base_Link` 中测量 `scene.table_z_m`；设置 `scene.object_radius_m`，使其以物体位姿原点为中心包住整个已注册物体网格。保留原始图像、样本文件、可用时的左右两次求解、保留点测量、误差报告、安装测量和已接受的模型版本。外参拟合通过不代表碰撞几何、腕部安装、传输时序或停止行为已经验证。
+在 `base_Link` 中测量 `scene.table_z_m`；设置 `scene.object_radius_m`，使其以物体位姿原点为中心包住整个已注册物体网格。保留原始图像、样本文件、可用时的左右两次求解、保留点测量、可视化报告目录及其中的 `metrics.json`、安装测量和已接受的模型版本。报告不会应用标定或启用执行。外参拟合通过不代表碰撞几何、腕部安装、传输时序或停止行为已经验证。
 
 头部偏离标定姿态后，此固定头部流程将失效。应恢复到该实测姿态或重新标定；服务不会外推相机与头部的运动学链。接下来完成[部署](deployment.zh-CN.md)，再进行[预抓取规划](pregrasp.zh-CN.md)。
