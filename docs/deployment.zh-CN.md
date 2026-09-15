@@ -46,7 +46,7 @@ TRON2_PYTHON=/home/dc/mambaforge/bin/python3.10 bash scripts/install.sh
 
 安装脚本使用 `constraints-ubuntu20-py310.txt`，记录在实际 Ubuntu 20.04.6/glibc 2.31 主机的独立 Python 3.10 环境中验证过的依赖版本。更新版本后需重新运行测试和模拟工作流；MuJoCo 版本变化也可能改变编译模型哈希，需要重新审核模型和规划。
 
-安装环境包含 Matplotlib，用于生成离线[标定可视化报告](calibration_visualization.zh-CN.md)。通过 `calibration-report` 从已保存图像和标定文件生成 HTML/PNG 报告，无需连接 ROS、GPU 服务或启动前端。标定采集、求解和应用仍通过 CLI 完成。
+标定时，`calibration-guide` 在端口 `8790` 启动独立的本地浏览器辅助页：预览标定板、采集样本，然后求解。只有显式点击页面操作后才会读取相机；使用 ROS 采集时，应在相机所需的 ROS 环境中启动。应用结果仍是显式 CLI 步骤。Matplotlib 用于 `calibration-report` 提供的可选离线诊断。参见[可视化采集引导](calibration_visualization.zh-CN.md)。
 
 软件包下载和隔离构建依赖默认使用 `https://pypi.org/simple`。安装脚本只为自身及子进程设置该源，不改写全局 pip 配置。如需显式指定另一个可用源，运行脚本时设置 `TRON2_PIP_INDEX_URL`。此行为遵循 [pip 文档中的配置优先级](https://pip.pypa.io/en/stable/topics/configuration/#precedence-override-order)。
 

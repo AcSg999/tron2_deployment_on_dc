@@ -8,7 +8,7 @@ The object pose informs target geometry; its quaternion is not copied to the wri
 
 | Stage | Guide | Output |
 | --- | --- | --- |
-| 1. Calibration | [Calibration](docs/calibration.md) · [Visual review](docs/calibration_visualization.md) | Intrinsics, hand-eye samples/solve, visual reports, independent validation and accepted deployment profile |
+| 1. Calibration | [Calibration](docs/calibration.md) · [Visual capture guide](docs/calibration_visualization.md) | Guided image/sample collection, intrinsics and hand-eye solve, independent validation and accepted deployment profile |
 | 2. Deployment | [DC device: Ubuntu 20.04](docs/deployment.md) | Installed runtime, configured camera/vision/robot connections and compact operator |
 | 3. Planning and execution | [Pregrasp workflow](docs/pregrasp.md) | Checked dual-arm plan, RViz review, preflight and measured execution log |
 
@@ -26,7 +26,7 @@ bash scripts/install.sh
 
 Open `http://127.0.0.1:8787`. The demo uses synthetic RGB-D, a toy dual-arm model and simulated feedback. It exercises validation, estimation, orientation-aware targets, IK, collision/limit checks, timed motion and logs. It does not establish hardware readiness. Live execution is an explicit CLI operation; the browser executes mock plans only.
 
-Calibration remains in the CLI. Use `tron2-deploy calibration-report` to generate an offline HTML report with image overlays, reprojection errors, hand-eye consistency plots and held-out point validation. Open its `index.html` directly in a browser; no operator service or ROS session is needed. Review the report before applying the calibration. See [calibration visualization](docs/calibration_visualization.md) for commands and interpretation.
+Start calibration from the CLI with `tron2-deploy calibration-guide`. Its browser page helps you see the board, capture usable views, track sample progress, and solve. The result shows the saved file and next step, plus the intrinsic RMS or hand-eye sample count. Apply the result through the existing CLI commands after independent validation. Detailed offline reports remain optional troubleshooting tools. See the [visual capture guide](docs/calibration_visualization.md).
 
 ## Implementation and limits
 

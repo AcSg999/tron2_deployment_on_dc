@@ -8,7 +8,7 @@
 
 | 阶段 | 文档 | 输出 |
 | --- | --- | --- |
-| 1. 标定 | [标定](docs/calibration.zh-CN.md) · [可视化检查](docs/calibration_visualization.zh-CN.md) | 内参、手眼样本与求解结果、可视化报告、独立验证和已验收部署配置 |
+| 1. 标定 | [标定](docs/calibration.zh-CN.md) · [可视化采集引导](docs/calibration_visualization.zh-CN.md) | 引导采集图像与样本、内参与手眼求解、独立验证和已验收部署配置 |
 | 2. 部署 | [DC 设备：Ubuntu 20.04](docs/deployment.zh-CN.md) | 已安装运行时、相机/视觉/机器人连接配置和精简操作页 |
 | 3. 规划与执行 | [预抓取流程](docs/pregrasp.zh-CN.md) | 已检查双臂计划、RViz 审核、执行前检查与实测日志 |
 
@@ -26,7 +26,7 @@ bash scripts/install.sh
 
 打开 `http://127.0.0.1:8787`。演示使用合成 RGB-D、简化双臂模型和模拟反馈，覆盖验证、估计、基于接近方向的目标生成、IK、碰撞/限位检查、定时运动与日志。它不代表真机已就绪。真机执行必须通过显式 CLI 操作；浏览器仅执行模拟计划。
 
-标定继续通过 CLI 完成。使用 `tron2-deploy calibration-report` 可生成离线 HTML 报告，查看图像叠加、重投影误差、手眼一致性图和保留点验证。直接在浏览器中打开报告的 `index.html`，无需启动操作服务或 ROS 会话。应用标定前先检查报告。命令和判读方法见[标定可视化](docs/calibration_visualization.zh-CN.md)。
+通过 CLI 的 `tron2-deploy calibration-guide` 启动标定。浏览器页面帮助用户看清标定板、采集合格视角、查看样本进度并求解。结果仅显示保存文件、下一步，以及内参 RMS 或手眼样本数；独立验证后，仍通过现有 CLI 命令应用结果。详细离线报告作为可选的排查工具。参见[可视化采集引导](docs/calibration_visualization.zh-CN.md)。
 
 ## 实现与限制
 

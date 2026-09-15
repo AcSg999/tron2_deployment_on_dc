@@ -139,6 +139,15 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("demo", help="run synthetic calibration-to-pregrasp pipeline")
     p.add_argument("--output", default="output/demo")
+    p = commands.add_parser("calibration-guide", help="open a visual helper for calibration capture and solving")
+    p.add_argument("--profile", required=True)
+    p.add_argument("--stage", choices=("intrinsics", "handeye"), required=True)
+    p.add_argument("--side", choices=("left", "right"), help="wrist carrying the board; required for handeye")
+    p.add_argument("--pattern", default="9x6")
+    p.add_argument("--square-m", type=float, default=.025)
+    p.add_argument("--output", required=True, help="new or empty calibration session directory")
+    p.add_argument("--mock", action="store_true", help="synthetic walkthrough without hardware connections")
+    p.add_argument("--port", type=int, default=8790)
     p = commands.add_parser("calibration-report", help="write offline HTML/PNG calibration diagnostics from saved evidence")
     p.add_argument("--intrinsics", help="intrinsic calibration JSON")
     p.add_argument("--images", help="quoted glob for original images; defaults to the intrinsic JSON image list")
@@ -191,7 +200,13 @@ def main(argv=None):
     p.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "calibration-report":
+        if args.command == "calibration-guide":
+            from .calibration_guide_server import serve
+            serve(args.profile, stage=args.stage, side=args.side,
+                  pattern=tuple(map(int, args.pattern.split("x"))), square_m=args.square_m,
+                  output=args.output, mock=args.mock, port=args.port)
+            return 0
+        elif args.command == "calibration-report":
             result = calibration_report_command(args)
         elif args.command == "demo":
             result = demo(args.output)

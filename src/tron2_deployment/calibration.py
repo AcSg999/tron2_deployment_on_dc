@@ -55,7 +55,7 @@ def intrinsic_fit(image_paths, pattern=(9, 6), square_m=0.025):
             "pattern": list(pattern), "square_m": square_m, "verified": False}
 
 
-def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m=0.025):
+def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m=0.025, on_frame=None):
     """Observe a stationary arm; reposition through the robot's separate operator interface."""
     from .robot import MockRobot, WebsocketRobot
     from .kinematics import RobotModel
@@ -97,6 +97,9 @@ def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m
         raise ValueError("robot moved during calibration sample; collect after settling")
     if np.max(np.abs(np.array(frame["head_q2"])-np.array(after["head_q2"]))) > 0.005:
         raise ValueError("image and measured head pose do not match")
+    if on_frame is not None:
+        from copy import deepcopy
+        on_frame(deepcopy(frame))
     image = decode_image(frame["image"], cv2.IMREAD_COLOR)
     found = corners(image, pattern)
     k = np.array(profile["camera"]["intrinsics"])

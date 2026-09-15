@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TRON2 · 标定采集助手</title>
+  <link rel="stylesheet" href="/calibration.css">
+  <script src="/calibration.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <a class="brand" href="/" aria-label="TRON2 calibration">TRON2 <span data-text="helper">标定采集助手</span></a>
+    <div class="header-actions"><span id="mode" class="badge" hidden></span><button id="language" type="button" aria-label="Switch to English">English</button></div>
+  </header>
+
+  <div class="intro">
+    <p class="eyebrow" data-text="eyebrow">CALIBRATION · 采集引导</p>
+    <h1 id="title">一步一步，完成标定采集</h1>
+    <p id="subtitle">先看画面，再换位置采集，最后计算结果。</p>
+  </div>
+
+  <p id="error" class="error" role="alert" hidden></p>
+  <p id="connection" class="connection" role="status" aria-live="polite">正在读取采集状态…</p>
+
+  <section class="workspace" aria-labelledby="preview-title">
+    <div class="preview-column">
+      <div class="section-heading"><h2 id="preview-title" data-text="previewTitle">相机画面</h2><span id="detection" class="badge" data-text="notCaptured">尚未采集</span></div>
+      <div class="camera">
+        <img id="preview-image" alt="标定板检测画面" hidden>
+        <div id="empty-preview" class="empty-preview">
+          <svg viewBox="0 0 72 56" width="72" height="56" aria-hidden="true"><rect x="8" y="10" width="56" height="38" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M25 10l4-6h14l4 6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="36" cy="29" r="11" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17 18h5" stroke="currentColor" stroke-width="2"/></svg>
+          <strong data-text="emptyTitle">把标定板放入画面</strong>
+          <span data-text="emptyHint">点击“查看画面”，检查标定板是否被识别。</span>
+        </div>
+      </div>
+      <div class="preview-footer"><div><p data-text="previewHint">检测到的角点会标在图上。画面只在点击后更新。</p><p id="board-spec" hidden></p></div><button id="preview" type="button" disabled data-text="previewButton">查看画面</button></div>
+    </div>
+
+    <div class="guide-column">
+      <div class="section-heading"><h2 data-text="currentStep">现在做什么</h2><span id="stage" class="stage-label">—</span></div>
+      <ol class="steps" aria-label="标定采集步骤">
+        <li id="step-preview" class="active"><span>1</span><span data-text="stepPreview">看清标定板</span></li>
+        <li id="step-save"><span>2</span><span data-text="stepSave">换位置采集</span></li>
+        <li id="step-solve"><span>3</span><span data-text="stepSolve">计算结果</span></li>
+      </ol>
+      <div class="instruction" role="status" aria-live="polite"><p id="notice">请先查看当前相机画面。</p><p id="next">保持标定板完整可见，等待画面稳定。</p></div>
+
+      <div class="collection-status">
+        <div class="sample-count"><span data-text="saved">已保存样本</span><strong id="saved-count">0</strong></div>
+        <div id="intrinsic-coverage" class="coverage" hidden><div class="coverage-grid" id="coverage-grid" aria-label="已采集的画面区域"></div><div><span data-text="coverageTitle">画面位置</span><p data-text="coverageHint">尝试不同区域和倾斜角度。</p></div></div>
+        <p id="handeye-spread" class="spread" hidden></p>
+      </div>
+
+      <button id="save" class="primary" type="button" disabled data-text="saveButton">重新采集并保存样本</button>
+      <p class="action-hint" data-text="saveHint">保存时会采集新画面，请保持标定板和机械臂静止。</p>
+      <button id="solve" type="button" disabled data-text="solveButton">计算结果</button>
+      <p id="solve-hint" class="action-hint" data-text="solveHint">采集满足条件后，即可计算。</p>
+    </div>
+  </section>
+
+  <section id="result" class="result" aria-labelledby="result-title" hidden>
+    <div class="result-heading"><div><p class="eyebrow" data-text="resultEyebrow">采集完成 · 下一步</p><h2 id="result-title" data-text="resultTitle">结果已保存</h2></div><div class="result-metric"><span id="metric-label"></span><strong id="metric-value"></strong></div></div>
+    <p id="result-next"></p>
+    <p class="result-note" data-text="resultNote">拟合误差用于检查采集质量；实际精度还需用独立测量点验证。</p>
+    <div class="output-file"><span data-text="outputFile">结果文件</span><code id="result-path"></code></div>
+    <div id="next-command" class="next-command" hidden><label for="command" data-text="commandLabel">在终端继续</label><div class="command-row"><textarea id="command" readonly rows="2" spellcheck="false"></textarea><button id="copy" type="button" data-text="copyButton">复制命令</button></div><p id="copy-status" role="status" aria-live="polite"></p></div>
+  </section>
+
+  <footer><span data-text="footer">标定 → 部署 → 预抓取</span><span data-text="manual">采集由你操作；助手不会移动机械臂。</span></footer>
+</main>
+</body>
+</html>
