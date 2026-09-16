@@ -15,6 +15,22 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
+def calibration_target(args):
+    """Load the ArUco target spec, or None for the chessboard path."""
+    from . import aruco
+
+    if args.target == "chessboard":
+        if args.target_spec:
+            raise ValueError("--target-spec applies only to --target aruco")
+        return None
+    if not args.target_spec:
+        raise ValueError("--target aruco requires --target-spec")
+    if getattr(args, "stage", None) == "intrinsics":
+        raise ValueError("ArUco targets are supported for hand-eye collection only; "
+                         "calibrate intrinsics from a chessboard")
+    return aruco.load_target_spec(args.target_spec)
+
+
 def calibration_report_command(args):
     """Inspect saved evidence without changing calibration or connecting hardware."""
     import numpy as np
@@ -145,6 +161,9 @@ def main(argv=None):
     p.add_argument("--side", choices=("left", "right"), help="wrist carrying the board; required for handeye")
     p.add_argument("--pattern", default="9x6")
     p.add_argument("--square-m", type=float, default=.025)
+    p.add_argument("--target", choices=("chessboard", "aruco"), default="chessboard",
+                   help="chessboard inner-corner target, or an ArUco marker/board for handeye")
+    p.add_argument("--target-spec", help="ArUco target JSON; required with --target aruco")
     p.add_argument("--output", required=True, help="new or empty calibration session directory")
     p.add_argument("--mock", action="store_true", help="synthetic walkthrough without hardware connections")
     p.add_argument("--port", type=int, default=8790)
@@ -183,6 +202,8 @@ def main(argv=None):
             p.add_argument("--side", choices=("left", "right"), required=True)
             p.add_argument("--pattern", default="9x6")
             p.add_argument("--square-m", type=float, default=.025)
+            p.add_argument("--target", choices=("chessboard", "aruco"), default="chessboard")
+            p.add_argument("--target-spec", help="ArUco target JSON; required with --target aruco")
         if name in ("apply-intrinsics", "apply-calibration"):
             p.add_argument("--intrinsics", required=True)
         if name == "apply-calibration":
@@ -204,6 +225,7 @@ def main(argv=None):
             from .calibration_guide_server import serve
             serve(args.profile, stage=args.stage, side=args.side,
                   pattern=tuple(map(int, args.pattern.split("x"))), square_m=args.square_m,
+                  target=calibration_target(args),
                   output=args.output, mock=args.mock, port=args.port)
             return 0
         elif args.command == "calibration-report":
@@ -275,7 +297,8 @@ def main(argv=None):
             elif args.command == "record-sample":
                 from .calibration import record_sample
                 result = {"sample": str(record_sample(profile, args.side, args.output, mock=args.mock,
-                    pattern=tuple(map(int, args.pattern.split("x"))), square_m=args.square_m))}
+                    pattern=tuple(map(int, args.pattern.split("x"))), square_m=args.square_m,
+                    target=calibration_target(args)))}
             elif args.command == "apply-intrinsics":
                 intrinsic = read_json(args.intrinsics)
                 profile["camera"].update(intrinsics=intrinsic["K"], distortion=intrinsic["dist"],

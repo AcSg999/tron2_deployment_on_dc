@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from . import calibration, camera
+from . import aruco, calibration, camera
 from .config import profile_fingerprint, write_json
 
 
@@ -27,11 +27,13 @@ class CalibrationGuide:
     """Collect fresh observations; never command joints or apply calibration."""
 
     def __init__(self, profile, output, *, stage="intrinsics", side=None,
-                 pattern=(9, 6), square_m=.025, mock=False, profile_path=None):
+                 pattern=(9, 6), square_m=.025, target=None, mock=False, profile_path=None):
         if stage not in ("intrinsics", "handeye"):
             raise ValueError("stage must be intrinsics or handeye")
         if stage == "handeye" and side not in ("left", "right"):
             raise ValueError("handeye requires side left or right")
+        if target is not None and stage != "handeye":
+            raise ValueError("ArUco targets are supported for hand-eye collection only")
         if len(pattern) != 2 or any(isinstance(n, bool) or not isinstance(n, int) for n in pattern):
             raise ValueError("pattern must contain two integer inner-corner counts")
         calibration.board_points(pattern, square_m)
@@ -45,9 +47,11 @@ class CalibrationGuide:
         path.mkdir(parents=True, exist_ok=True)
         self.output = path.resolve()
         self.stage, self.side, self.pattern = stage, side, tuple(pattern)
-        self.square_m, self.mock = float(square_m), bool(mock)
+        self.square_m, self.mock, self.target = float(square_m), bool(mock), target
+        self.target_hash = _digest(target["spec_file"]) if target else None
         self._views, self._samples, self._artifacts, self._regions = [], [], {}, set()
         self._preview_image, self._board_detected, self._result = None, None, None
+        self._marker_ids = []
         self._result_hash = None
         self._notice = _words("Ready. Place the whole board in view, then preview.",
                               "准备就绪。让完整棋盘进入画面，然后预览。")
@@ -56,6 +60,7 @@ class CalibrationGuide:
         write_json(self.output / "session.json", {
             "stage": stage, "side": side, "source": "mock" if mock else "real",
             "pattern": list(pattern), "square_m": self.square_m,
+            "target": aruco.target_record(target) if target is not None else None,
             "profile_hash": self.profile_fingerprint,
             "profile_file_sha256": self.profile_hash,
         })
@@ -65,6 +70,8 @@ class CalibrationGuide:
             raise ValueError("profile changed during collection; start a new calibration session")
         if profile_fingerprint(self.profile) != self.profile_fingerprint:
             raise ValueError("profile or robot model changed during collection; start a new calibration session")
+        if self.target is not None and _digest(self.target["spec_file"]) != self.target_hash:
+            raise ValueError("target spec changed during collection; start a new calibration session")
 
     def _check_result(self):
         if self._result:
@@ -84,6 +91,9 @@ class CalibrationGuide:
         if self.stage == "intrinsics":
             return _words("Move the board to another area and tilt it. Save at least 5 different views; 10–15 is preferable.",
                           "把棋盘移到另一区域并改变倾斜角度。至少保存 5 个不同视角，建议 10–15 个。")
+        if self.target is not None:
+            return _words("Keep the head fixed and the target rigidly attached to the selected wrist. Reposition through the robot's separate controls, let it settle, then save. Keep enough markers visible and rotate about different axes.",
+                          "保持头部不动，目标刚性固定在所选手腕上。通过机器人独立控制界面调整姿态，等待静止后保存。保持足够的标记可见，并绕不同轴改变转角。")
         return _words("Keep the head fixed and the board rigidly attached to the selected wrist. Reposition through the robot's separate controls, let it settle, then save. Collect at least 5 poses with at least 15° rotation spread and rotations about different axes.",
                       "保持头部不动，棋盘刚性固定在所选手腕上。通过机器人独立控制界面调整姿态，等待静止后保存。至少采集 5 个姿态，转角变化至少达到 15°，并绕不同轴改变转角。")
 
@@ -97,20 +107,45 @@ class CalibrationGuide:
             "preview_image": self._preview_image, "board_detected": self._board_detected,
             "notice": self._notice, "next": self._next, "result": self._result,
             "coverage_regions": sorted(self._regions), "rotation_spread_deg": spread,
-            "pattern": list(self.pattern), "square_m": self.square_m,
+            "pattern": list(self.pattern) if self.target is None else None,
+            "square_m": self.square_m if self.target is None else None,
+            "target": None if self.target is None else {
+                "kind": self.target["kind"], "dictionary": self.target["dictionary"],
+                "marker_length_m": self.target["marker_length_m"],
+                "marker_separation_m": self.target["marker_separation_m"],
+                "markers_x": self.target["markers_x"], "markers_y": self.target["markers_y"],
+                "marker_ids": list(self.target["marker_ids"]),
+                "min_visible_markers": self.target["min_visible_markers"]},
+            "detected_marker_ids": list(self._marker_ids),
             "output": str(self.output), "hardware_commanded": False,
             "calibration_applied": False,
         })
 
     def _observe(self, image):
+        if self.target is None:
+            self._preview_image = camera.encode_image(image)
+            self._board_detected = False
+            found = calibration.corners(image, self.pattern)
+            overlay = image.copy()
+            cv2.drawChessboardCorners(overlay, self.pattern, found, True)
+            self._preview_image = camera.encode_image(overlay)
+            self._board_detected = True
+            self._marker_ids = []
+            return found.reshape(-1, 2)
         self._preview_image = camera.encode_image(image)
         self._board_detected = False
-        found = calibration.corners(image, self.pattern)
+        found, order = aruco.detect_markers(image, self.target)
+        self._marker_ids = list(order)
         overlay = image.copy()
-        cv2.drawChessboardCorners(overlay, self.pattern, found, True)
+        if order:
+            cv2.aruco.drawDetectedMarkers(
+                overlay, [found[value].reshape(1, 4, 2) for value in order],
+                np.asarray(order, dtype=np.int32).reshape(-1, 1))
         self._preview_image = camera.encode_image(overlay)
-        self._board_detected = True
-        return found.reshape(-1, 2)
+        self._board_detected = bool(order)
+        if not order:
+            raise ValueError("no ArUco markers were detected")
+        return np.vstack([found[value].reshape(4, 2) for value in order])
 
     def _failure(self, exc):
         message = str(exc)
@@ -220,7 +255,7 @@ class CalibrationGuide:
                     # Preserve all freshness, synchronization and stationarity gates.
                     sample_path = calibration.record_sample(
                         self.profile, self.side, temporary, mock=False,
-                        pattern=self.pattern, square_m=self.square_m,
+                        pattern=self.pattern, square_m=self.square_m, target=self.target,
                         on_frame=lambda frame: self._observe(camera.decode_image(frame["image"], cv2.IMREAD_COLOR)))
                     sample = json.loads(Path(sample_path).read_text())
                     image = cv2.imread(str(Path(sample_path).parent / sample["image"]))
@@ -301,6 +336,8 @@ class CalibrationGuide:
 
     def _mock_observation(self, index):
         """A deterministic projected board; no robot/camera adapter is created."""
+        if self.target is not None:
+            return self._mock_target_observation(index)
         config = self.profile["camera"]
         width, height = config["width"], config["height"]
         k = np.array([[width * .9, 0, width / 2], [0, width * .9, height / 2], [0, 0, 1.]])
@@ -342,6 +379,39 @@ class CalibrationGuide:
                  "sensor_sync": {"source": "synthetic"}, "depth_scale": .001}
         return frame, target
 
+    def _mock_target_observation(self, index):
+        """Deterministic perspective view of the configured ArUco target."""
+        config = self.profile["camera"]
+        width, height = config["width"], config["height"]
+        k = np.array([[width * .9, 0, width / 2], [0, width * .9, height / 2], [0, 0, 1.]])
+        angles = [(-22, -16, 0), (18, -15, 7), (-12, 20, -8), (20, 15, 2),
+                  (-18, 8, 10), (10, -22, -12), (-8, 24, 3), (25, -7, 12), (3, 14, -16)]
+        locations = [(.28, .28), (.72, .28), (.5, .5), (.28, .72), (.72, .72),
+                     (.5, .28), (.28, .5), (.72, .5), (.5, .72)]
+        tilt = np.array(angles[index % len(angles)], dtype=float)
+        cycle = (index // len(angles)) % 3
+        tilt[2] += cycle * 14
+        rotation = Rotation.from_euler("xyz", tilt, degrees=True).as_matrix()
+        extent = aruco.layout_extent(self.target)
+        z = max(.35, extent[0] * k[0, 0] / (width * .38),
+                extent[1] * k[1, 1] / (height * .35)) * (1 + .04 * (index % 3)) * (1 + .14 * cycle)
+        u, v = locations[index % len(locations)]
+        center = np.array([(u * width - k[0, 2]) * z / k[0, 0],
+                           (v * height - k[1, 2]) * z / k[1, 1], z])
+        target = np.eye(4)
+        target[:3, :3] = rotation
+        target[:3, 3] = center - rotation @ aruco.layout_center(self.target)
+        image = aruco.render_target(self.target, (height, width), rotation, target[:3, 3], k)
+        now = time.time()
+        frame = {"image": camera.encode_image(image),
+                 "depth": camera.encode_image(np.full((height, width), int(z * 1000), np.uint16)),
+                 "source": "mock", "camera_id": "synthetic-calibration-guide",
+                 "timestamp_s": now, "capture_timestamp_s": now,
+                 "width": width, "height": height, "intrinsics": k.tolist(), "distortion": [0] * 5,
+                 "head_q2": list(self.profile["calibration"]["head_q2"]),
+                 "sensor_sync": {"source": "synthetic"}, "depth_scale": .001}
+        return frame, target
+
     def _mock_sample(self, frame, target):
         camera_to_base = np.eye(4)
         camera_to_base[:3, :3] = Rotation.from_euler("xyz", [.2, -.3, .1]).as_matrix()
@@ -349,7 +419,12 @@ class CalibrationGuide:
         mount = np.eye(4)
         mount[:3, 3] = [.02, .03, .08]
         wrist = camera_to_base @ target @ np.linalg.inv(mount)
-        return {"side": self.side, "source": "mock", "timestamp_s": frame["timestamp_s"],
-                "robot_gripper_to_base": wrist.tolist(), "target_to_camera": target.tolist(),
-                "head_q2": frame["head_q2"], "pattern": list(self.pattern), "square_m": self.square_m,
-                "frame": {key: value for key, value in frame.items() if key not in ("image", "depth")}}
+        sample = {"side": self.side, "source": "mock", "timestamp_s": frame["timestamp_s"],
+                  "robot_gripper_to_base": wrist.tolist(), "target_to_camera": target.tolist(),
+                  "head_q2": frame["head_q2"],
+                  "frame": {key: value for key, value in frame.items() if key not in ("image", "depth")}}
+        if self.target is None:
+            sample.update(pattern=list(self.pattern), square_m=self.square_m)
+        else:
+            sample["target"] = aruco.target_record(self.target)
+        return sample

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from . import aruco
 from .camera import capture, decode_image
 from .config import finite, rigid, write_json
 from .handeye import calibrate_handeye
@@ -55,8 +56,26 @@ def intrinsic_fit(image_paths, pattern=(9, 6), square_m=0.025):
             "pattern": list(pattern), "square_m": square_m, "verified": False}
 
 
-def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m=0.025, on_frame=None):
-    """Observe a stationary arm; reposition through the robot's separate operator interface."""
+def target_descriptor(sample):
+    """Calibration target identity of a sample or solution.
+
+    Older chessboard samples and solutions carry no ``target`` block, so they
+    are translated on the fly instead of being invalidated.
+    """
+    target = sample.get("target")
+    if target is not None:
+        return target
+    return {"kind": "chessboard", "pattern": list(sample["pattern"]),
+            "square_m": float(sample["square_m"])}
+
+
+def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m=0.025,
+                  target=None, on_frame=None):
+    """Observe a stationary arm; reposition through the robot's separate operator interface.
+
+    ``target`` selects the ArUco path when given; ``None`` keeps the chessboard
+    path and its original sample fields.
+    """
     from .robot import MockRobot, WebsocketRobot
     from .kinematics import RobotModel
     from .fp_client import pose7_to_matrix
@@ -101,15 +120,20 @@ def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m
         from copy import deepcopy
         on_frame(deepcopy(frame))
     image = decode_image(frame["image"], cv2.IMREAD_COLOR)
-    found = corners(image, pattern)
     k = np.array(profile["camera"]["intrinsics"])
     dist = np.array(profile["camera"]["distortion"])
-    ok, rv, tv = cv2.solvePnP(board_points(pattern, square_m), found, k, dist)
-    if not ok:
-        raise ValueError("board pose solve failed")
-    target = np.eye(4)
-    target[:3, :3] = cv2.Rodrigues(rv)[0]
-    target[:3, 3] = tv.ravel()
+    if target is None:
+        found = corners(image, pattern)
+        ok, rv, tv = cv2.solvePnP(board_points(pattern, square_m), found, k, dist)
+        if not ok:
+            raise ValueError("board pose solve failed")
+        pose = np.eye(4)
+        pose[:3, :3] = cv2.Rodrigues(rv)[0]
+        pose[:3, 3] = tv.ravel()
+        identity = {"pattern": list(pattern), "square_m": square_m}
+    else:
+        pose, _ = aruco.estimate_pose(image, target, k, dist)
+        identity = {"target": aruco.target_record(target)}
     model = RobotModel(profile)
     model.set_state(after["arm_q14"], after["head_q2"])
     wrist = model.wrist_poses()[side]
@@ -119,18 +143,27 @@ def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m
     cv2.imwrite(str(path/f"{stamp}.png"), image)
     sample = {"side": side, "source": frame["source"], "timestamp_s": now,
               "robot_gripper_to_base": pose7_to_matrix(wrist).tolist(),
-              "target_to_camera": target.tolist(), "arm_q14": after["arm_q14"],
+              "target_to_camera": pose.tolist(), "arm_q14": after["arm_q14"],
               "head_q2": after["head_q2"], "frame": {k: v for k, v in frame.items() if k not in ("image", "depth")},
-              "image": f"{stamp}.png", "pattern": list(pattern), "square_m": square_m}
+              "image": f"{stamp}.png", **identity}
     return write_json(path/f"{stamp}.json", sample)
 
 
 def solve_samples(samples, mode="eye_to_hand"):
     if len(samples) < 5:
         raise ValueError("at least five stationary samples are required")
-    for key in ("side", "source", "pattern", "square_m"):
+    for key in ("side", "source"):
         if any(item[key] != samples[0][key] for item in samples):
             raise ValueError(f"hand-eye sample {key} must be consistent")
+    targets = [target_descriptor(item) for item in samples]
+    if any(value != targets[0] for value in targets):
+        fields = sorted({key for value in targets for key in value
+                         if value.get(key) != targets[0].get(key)})
+        raise ValueError("hand-eye samples must share one calibration target; "
+                         f"differing fields: {fields}")
+    for value in targets:
+        if value["kind"] == "chessboard" and (min(value["pattern"]) < 2 or value["square_m"] <= 0):
+            raise ValueError("hand-eye chessboard pattern and square_m must be positive")
     camera_ids = {item["frame"]["camera_id"] for item in samples}
     if len(camera_ids) != 1:
         raise ValueError("hand-eye samples must use the same physical camera")
@@ -144,7 +177,8 @@ def solve_samples(samples, mode="eye_to_hand"):
         raise ValueError("hand-eye samples need at least 15 degrees of rotation spread")
     result = calibrate_handeye(robot, target, mode=mode)
     result.update(source=samples[0]["source"], head_q2=head[0].tolist(),
-                  side=samples[0]["side"], camera_id=next(iter(camera_ids)), verified=False)
+                  side=samples[0]["side"], camera_id=next(iter(camera_ids)),
+                  target=targets[0], verified=False)
     return result
 
 

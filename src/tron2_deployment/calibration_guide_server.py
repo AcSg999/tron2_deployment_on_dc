@@ -81,14 +81,14 @@ def make_server(guide, port=8790):
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
 
-def serve(profile_path, *, stage, side=None, pattern=(9, 6), square_m=.025,
+def serve(profile_path, *, stage, side=None, pattern=(9, 6), square_m=.025, target=None,
           output, mock=False, port=8790):
     from .calibration_guide import CalibrationGuide
     from .config import load_profile
 
     guide = CalibrationGuide(load_profile(profile_path), output, stage=stage, side=side,
-                             pattern=pattern, square_m=square_m, mock=mock,
-                             profile_path=profile_path)
+                             pattern=pattern, square_m=square_m, target=target,
+                             mock=mock, profile_path=profile_path)
     server = make_server(guide, port)
     print(f"Calibration helper / 标定辅助: http://127.0.0.1:{server.server_address[1]}", flush=True)
     print("Open this URL. Preview reads the camera; Save captures a fresh sample. Ctrl+C stops the helper.\n"

@@ -26,6 +26,7 @@
       requestBusy: "正在处理，请保持静止…", previewBusy: "正在采集画面…", saveBusy: "正在采集并保存新样本…", solveBusy: "正在计算标定结果…",
       mock: "模拟数据", real: "实际采集", intrinsics: "相机内参", handeye: "相机到基座外参",
       left: "左腕", right: "右腕", board: "棋盘", innerCorners: "个内角点", square: "方格边长",
+      arucoMarker: "ArUco 单码", arucoBoard: "ArUco 集成板", markerSize: "标记边长", markerGap: "标记间隙", visibleMarkers: "可见标记",
       requestError: "操作未完成", networkError: "无法连接采集服务，请检查终端中的服务状态。",
       spread: "相对首个样本的最大腕部转角变化", noSpread: "采集不同腕部姿态，避免只做平移。", selected: "已覆盖", unselected: "尚未覆盖",
       regions: ["左上", "上中", "右上", "左中", "中心", "右中", "左下", "下中", "右下"],
@@ -53,6 +54,7 @@
       requestBusy: "Working. Please keep still…", previewBusy: "Capturing the view…", saveBusy: "Capturing and saving a new sample…", solveBusy: "Solving calibration…",
       mock: "MOCK DATA", real: "Real capture", intrinsics: "Camera intrinsics", handeye: "Camera to base",
       left: "Left wrist", right: "Right wrist", board: "Board", innerCorners: "inner corners", square: "square size",
+      arucoMarker: "ArUco marker", arucoBoard: "ArUco board", markerSize: "marker size", markerGap: "marker gap", visibleMarkers: "visible markers",
       requestError: "Action could not be completed", networkError: "Cannot connect to the capture service. Check its status in the terminal.",
       spread: "Largest wrist rotation change from the first sample", noSpread: "Vary wrist rotation as well as position.", selected: "sampled", unselected: "not sampled",
       regions: ["Top left", "Top center", "Top right", "Middle left", "Center", "Middle right", "Bottom left", "Bottom center", "Bottom right"],
@@ -87,9 +89,21 @@
     $("stage").textContent = state ? t[state.stage] || "" : "—";
     if (state?.stage === "handeye" && ["left", "right"].includes(state.side)) $("stage").textContent = `${t[state.side]} · ${t.handeye}`;
     const pattern = state?.pattern;
+    const target = state?.target;
     const hasBoardSpec = Array.isArray(pattern) && pattern.length === 2 && pattern.every(Number.isFinite) && Number.isFinite(state?.square_m);
-    $("board-spec").hidden = !hasBoardSpec;
-    $("board-spec").textContent = hasBoardSpec ? `${t.board}: ${pattern.join(" × ")} ${t.innerCorners} · ${t.square} ${Number((state.square_m * 1000).toFixed(3))} mm` : "";
+    const millimetres = (value) => Number((value * 1000).toFixed(3));
+    let spec = "";
+    if (hasBoardSpec) {
+      spec = `${t.board}: ${pattern.join(" × ")} ${t.innerCorners} · ${t.square} ${millimetres(state.square_m)} mm`;
+    } else if (target) {
+      const visible = Array.isArray(state?.detected_marker_ids) ? state.detected_marker_ids.length : 0;
+      spec = `${target.kind === "marker" ? t.arucoMarker : t.arucoBoard}: ${target.dictionary} · `;
+      spec += target.kind === "marker"
+        ? `ID ${target.marker_ids.join(", ")} · ${t.markerSize} ${millimetres(target.marker_length_m)} mm`
+        : `${target.markers_x} × ${target.markers_y} · ${t.markerSize} ${millimetres(target.marker_length_m)} mm · ${t.markerGap} ${millimetres(target.marker_separation_m)} mm · ${t.visibleMarkers} ${visible}/${target.marker_ids.length}`;
+    }
+    $("board-spec").hidden = !spec;
+    $("board-spec").textContent = spec;
     $("mode").hidden = !state;
     $("mode").textContent = state?.mock ? t.mock : t.real;
     $("mode").className = `badge${state?.mock ? " mock" : ""}`;

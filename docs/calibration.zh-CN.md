@@ -12,7 +12,7 @@
 
 模型必须描述实际安装的腕部与被动附件。当前适配器只映射 14 个手臂关节和两个头部关节；其他关节必须固定，同时保留其碰撞几何。同步机器人、相机和主机时钟。采集代码会拒绝过期图像，以及缺失或不一致的头部反馈。
 
-测量棋盘格方格边长，并统计**内角点**数量。示例使用 `9x6` 个内角点、方格边长 `0.025` m 的标定板；这两个参数都应改为实际数值。采集手眼样本时，将标定板刚性固定在所选腕部，同一组样本内不得改变安装关系。通过机器人另外经过审核的定位界面调整手臂姿态，待其稳定后逐次采集。采集程序本身只读取相机和关节状态。
+测量棋盘格方格边长，并统计**内角点**数量。示例使用 `9x6` 个内角点、方格边长 `0.025` m 的标定板；这两个参数都应改为实际数值。采集手眼样本时，将标定板刚性固定在所选腕部，同一组样本内不得改变安装关系。通过机器人另外经过审核的定位界面调整手臂姿态，待其稳定后逐次采集。采集程序本身只读取相机和关节状态。手眼采集也可改用 ArUco 目标，而不必把棋盘固定在腕上；见手眼采集一节中的 ArUco 小节。
 
 ## 通过可视化引导拟合彩色内参
 
@@ -65,9 +65,109 @@
 
 采集右腕样本时，使用 `--side right` 和独立的 `handeye-right-guided` 目录。左右样本集应分别求解，不要混合。两次求得的相机到基座变换应在实测误差预算内一致。样本字段 `robot_gripper_to_base` 虽然沿用了旧名称，实际保存的是所选**腕部**变换。
 
+### 改用 ArUco 目标替代棋盘
+
+腕上固定棋盘体积大。固定相机的眼在手外求解也可以使用 ArUco 目标，且其几何参数不写死在代码里：由一个 JSON 配置给出，通过 `--target aruco --target-spec` 传入。内参标定仍使用棋盘。
+
+```bash
+.venv/bin/tron2-deploy calibration-guide \
+  --profile configs/local-robot-intrinsics.json --stage handeye --side left \
+  --target aruco --target-spec configs/local-aruco-target.json \
+  --output calibration_data/handeye-left-guided
+```
+
+`configs/aruco-marker.example.json` 是单码示例，`configs/aruco-board.example.json` 是刚性集成板示例。复制其中一个为本地文件（`configs/local*.json` 不纳入版本管理），并替换所有实测数值。
+
+| 字段 | 适用 | 含义 |
+| --- | --- | --- |
+| `kind` | 两者 | `marker` 表示单个标记，`board` 表示刚性多标记布局 |
+| `dictionary` | 两者 | `cv2.aruco` 字典名，如 `DICT_6X6_250` |
+| `marker_length_m` | 两者 | 印刷黑方块边长（米），不含白边 |
+| `marker_id` | `marker` | 单个标记的印刷 ID |
+| `markers_x`、`markers_y` | `board` | 布局每行、每列的标记数 |
+| `marker_separation_m` | `board` | 相邻黑方块之间的间隙，不是中心距 |
+| `first_marker_id` | `board` | ID 按行主序连续时的起始 ID |
+| `marker_ids` | `board` | 显式的行主序 ID 列表；ID 不连续时用它替代 `first_marker_id` |
+| `frame_marker_id` | `board` | 以其印刷左上角作为目标坐标系原点的标记 |
+| `min_visible_markers` | `board` | 一帧至少需要可见的标记数，默认 2 |
+| `min_solution_ratio` | 两者 | 另一个平面解的重投影误差至少要差多少倍，默认 2.0 |
+
+目标坐标系取 `frame_marker_id` 的标准 ArUco 坐标系：原点在该标记印刷左上角，+x 沿印刷右边缘，+y 沿印刷下边缘，+z 指向印刷平面内部。你只需测量印刷几何。标记到腕部的安装偏置在眼在手外求解中会抵消，无需测量，但同一组样本内不得改变。
+
+平面目标总存在第二个位姿解。只有当另一个解的重投影误差至少差 `min_solution_ratio` 倍时该帧才会被接受；因此尺寸偏小或接近正对相机的目标会被拒绝，而不是以静默错误的倾角通过。实际影响：优先使用集成板而不是单个小标记，把目标保持在顶部相机约半米以内，并让多个标记同时可见。单个 5 cm 标记在 1 m 处即使被检测到，精度也不足。
+
+CLI 采集使用相同参数，例如 `record-sample --side left --target aruco --target-spec configs/local-aruco-target.json`。其余采集与验收规则不变：同样要求五个样本、15° 转角跨度、静止、同步与独立保留点验证；样本文件会记录目标配置，之后任何修改都会使比较失效。
+
 ## 使用保留点验证并应用结果
 
-测量至少三个未参与求解且不共线的点。每个点都需要记录以米为单位的相机坐标，以及独立测量的 `base_Link` 坐标。不要使用待验证的变换生成“期望”基座坐标。
+保留点就是没有参与求解的点：标定算完之后，你另外量几个点来检验结果。前面显示的手眼残差只反映样本一致性，不代表精度，所以这些点是唯一的独立证据。它们由你手工测量，程序只消费这两组数组。
+
+在桌面或工装上选至少三个固定的点，要求顶部相机看得到、机械臂也够得到，例如贴纸十字、工装尖点、画了标记的角点。每个点测两次——一次得到相机坐标，一次得到 `base_Link` 坐标——两组数组顺序必须一一对应，并且**绝不能用待验证的变换反算 `points_base`**。
+
+### 相机坐标
+
+先拍一帧已去畸变的 RGB-D，并和测量数据放在一起：
+
+```bash
+.venv/bin/tron2-deploy capture \
+  --profile configs/local-robot-intrinsics.json \
+  --output calibration_data/heldout/frame
+```
+
+该命令写出 `color.png`（已去畸变）、`depth.png`（16 位，单位 mm，已对齐到彩色）和 `frame.json`。在 `color.png` 上读出每个点的像素，填入下面的列表并反投影：
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+import cv2
+import numpy as np
+pixels = [(320, 240), (180, 300), (470, 210)]   # 换成你读到的像素
+frame = json.load(open('calibration_data/heldout/frame/frame.json'))
+k = np.array(frame['intrinsics'], dtype=float)
+depth = cv2.imread('calibration_data/heldout/frame/depth.png', cv2.IMREAD_UNCHANGED)
+points = []
+for u, v in pixels:
+    z = float(depth[v, u]) * frame['depth_scale']
+    if not z > 0:
+        raise SystemExit(f'no depth at pixel ({u}, {v}); pick another pixel')
+    points.append([(u - k[0, 2]) * z / k[0, 0], (v - k[1, 2]) * z / k[1, 1], z])
+print(json.dumps(points))
+PY
+```
+
+要用这一帧已去畸变的采集，而不是内参用的 `--raw` 视角：`depth.png` 已经对齐到去畸变彩色，所以反投影只需要 `K`。
+
+### 基座坐标
+
+对同样的点，通过机器人自身经过审核的控制界面移动机械臂，让与所配置 TCP 坐标系重合的尖点顶到该点，然后读取关节：
+
+```bash
+.venv/bin/tron2-deploy state \
+  --profile configs/local-robot-intrinsics.json \
+  --output calibration_data/heldout/state-01.json
+```
+
+把这次读数换算成 `base_Link` 中被顶到的那个点：
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from tron2_deployment.config import load_profile
+from tron2_deployment.geometry import pose_matrix
+from tron2_deployment.kinematics import RobotModel
+profile = load_profile('configs/local-robot-intrinsics.json')
+state = json.load(open('calibration_data/heldout/state-01.json'))
+side = 'left'   # 顶到该点的腕部
+model = RobotModel(profile)
+model.set_state(state['arm_q14'], state['head_q2'])
+touched = pose_matrix(model.wrist_poses()[side]) @ pose_matrix(profile['pregrasp'][side]['wrist_to_tcp_pose7'])
+print(touched[:3, 3].tolist())
+PY
+```
+
+每个点重复 `state` 与换算，`side` 保持一致。如果实际末端没有与所配置 TCP 原点重合的尖点，先临时装一个，或先修正 `pregrasp.<side>.wrist_to_tcp_pose7`；否则你顶到的点并不是你测的那个点。
+
+这些点要分散：至少三个、不共线，并在深度、高度和水平位置上都有变化，因为该检查取最坏值而不是平均值。阈值按深度传感器的实际精度和部署间隙预算确定；下文示例中的 `0.005` 是 5 mm，可能比 RGB-D 在整个工作空间内能支持的还要紧。
 
 将这些实测数据保存到 `calibration_data/heldout_points.json`，使用 `points_camera` 和 `points_base` 两个字段，均为大小相同的 `N x 3` 数组。转换为所需的 NPZ 格式：
 

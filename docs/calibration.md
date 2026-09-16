@@ -12,7 +12,7 @@ Copy `configs/robot.example.json` to `configs/local-robot-seed.json` as describe
 
 The model must describe the installed wrists and passive attachments. The current adapter maps exactly 14 arm joints and two head joints; other joints must be fixed while retaining their collision geometry. Synchronize robot, camera, and host clocks. The acquisition code rejects stale images and missing or inconsistent head feedback.
 
-Measure the chessboard square size and count **inner corners**. Examples use a `9x6` inner-corner board with `0.025` m squares; change both arguments to match the actual board. During hand-eye sampling, rigidly attach the board to the selected wrist. Its mounting must not change within one sample set. Use the robot's separately reviewed positioning interface to change arm poses, then wait for settling before each capture. Collection itself only reads camera and joint state.
+Measure the chessboard square size and count **inner corners**. Examples use a `9x6` inner-corner board with `0.025` m squares; change both arguments to match the actual board. During hand-eye sampling, rigidly attach the board to the selected wrist. Its mounting must not change within one sample set. Use the robot's separately reviewed positioning interface to change arm poses, then wait for settling before each capture. Collection itself only reads camera and joint state. Hand-eye sampling can use an ArUco target instead of a wrist-mounted chessboard; see the ArUco subsection under hand-eye collection.
 
 ## Fit color intrinsics with visual guidance
 
@@ -65,9 +65,109 @@ Click **Solve** when ready. Samples are saved under `calibration_data/handeye-le
 
 For a right-wrist sample set, use `--side right` and a separate `handeye-right-guided` directory. Solve the two sets independently; do not mix them. Their camera-to-base results should agree within the measured error budget. The sample field `robot_gripper_to_base` stores the selected **wrist** transform, despite its inherited name.
 
+### ArUco targets instead of a chessboard
+
+A wrist-mounted chessboard is bulky. The fixed-camera eye-to-hand solve also accepts an ArUco target, and its geometry is never hard-coded: you supply a JSON spec through `--target aruco --target-spec`. Intrinsic calibration still uses a chessboard.
+
+```bash
+.venv/bin/tron2-deploy calibration-guide \
+  --profile configs/local-robot-intrinsics.json --stage handeye --side left \
+  --target aruco --target-spec configs/local-aruco-target.json \
+  --output calibration_data/handeye-left-guided
+```
+
+`configs/aruco-marker.example.json` covers a single marker and `configs/aruco-board.example.json` covers a rigid multi-marker board. Copy one into a local file (`configs/local*.json` is not tracked) and replace every measured value.
+
+| Field | Applies to | Meaning |
+| --- | --- | --- |
+| `kind` | both | `marker` for one marker, `board` for a rigid multi-marker layout |
+| `dictionary` | both | a `cv2.aruco` dictionary name such as `DICT_6X6_250` |
+| `marker_length_m` | both | printed black-square edge length in metres, excluding any white border |
+| `marker_id` | `marker` | printed id of the single marker |
+| `markers_x`, `markers_y` | `board` | markers per row and per column of the printed layout |
+| `marker_separation_m` | `board` | gap between adjacent black squares, not centre distance |
+| `first_marker_id` | `board` | starting id when the ids run consecutively in row-major order |
+| `marker_ids` | `board` | explicit row-major id list; use it instead of `first_marker_id` for a non-consecutive layout |
+| `frame_marker_id` | `board` | marker whose printed top-left corner is the target origin |
+| `min_visible_markers` | `board` | markers a frame must show to count; default 2 |
+| `min_solution_ratio` | both | how much worse the alternative planar solution must fit; default 2.0 |
+
+The target frame is the standard ArUco frame of `frame_marker_id`: origin at that marker's printed top-left corner, +x along its printed right edge, +y along its printed bottom edge, +z into the printed plane. You measure only the printed geometry. The marker-to-wrist mounting offset does not need to be measured, because it cancels in the eye-to-hand solve, but it must not change within one sample set.
+
+A planar target always has a second pose solution. A frame is rejected unless that alternative fits at least `min_solution_ratio` times worse, so a small or nearly front-facing target is refused instead of being accepted at a silently wrong tilt. In practice: prefer a board over a single small marker, keep the target within roughly half a metre of the top camera, and keep several markers in view. A single 5 cm marker at one metre is not accurate even when it is detected.
+
+CLI collection takes the same arguments, for example `record-sample --side left --target aruco --target-spec configs/local-aruco-target.json`. Every other collection and acceptance rule is unchanged: five samples, 15-degree rotation spread, stationarity, synchronization and the independent held-out point check all still apply, and each sample records the target spec so that a later change invalidates the comparison.
+
 ## Validate held-out points and apply the result
 
-Measure at least three non-collinear points that were not used in the solve. For each point, record its camera-frame coordinates and independently measured `base_Link` coordinates in metres. Do not derive the expected base coordinates from the transform being tested.
+A held-out point is just a point that was not used to compute the transform: you measure a few of them afterwards to check the result. The hand-eye residuals shown earlier describe sample consistency, not accuracy, so these points are the only independent evidence. They are measured by hand, and the program only consumes the two arrays.
+
+Pick at least three fixed points on the table or on the fixture that the top camera can see and the arm can reach, for example tape crosses, a fixture tip or a marked corner. Measure each point twice — once in camera coordinates, once in `base_Link` — keep both arrays in the same order, and never derive `points_base` from the transform being tested.
+
+### Camera coordinates
+
+Take one rectified RGB-D capture and keep it with the measurements:
+
+```bash
+.venv/bin/tron2-deploy capture \
+  --profile configs/local-robot-intrinsics.json \
+  --output calibration_data/heldout/frame
+```
+
+That writes `color.png` (rectified), `depth.png` (16-bit millimetres, aligned to colour) and `frame.json`. Read the pixel of each chosen point in `color.png`, list them below, and back-project them:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+import cv2
+import numpy as np
+pixels = [(320, 240), (180, 300), (470, 210)]   # replace with your measured pixels
+frame = json.load(open('calibration_data/heldout/frame/frame.json'))
+k = np.array(frame['intrinsics'], dtype=float)
+depth = cv2.imread('calibration_data/heldout/frame/depth.png', cv2.IMREAD_UNCHANGED)
+points = []
+for u, v in pixels:
+    z = float(depth[v, u]) * frame['depth_scale']
+    if not z > 0:
+        raise SystemExit(f'no depth at pixel ({u}, {v}); pick another pixel')
+    points.append([(u - k[0, 2]) * z / k[0, 0], (v - k[1, 2]) * z / k[1, 1], z])
+print(json.dumps(points))
+PY
+```
+
+Use this rectified capture, not an intrinsic `--raw` view: `depth.png` is already aligned to the rectified colour, so the back-projection needs only `K`.
+
+### Base-frame coordinates
+
+For the same points, jog the arm through its own reviewed controls until the tip that coincides with the configured TCP frame touches the point, then read the joints:
+
+```bash
+.venv/bin/tron2-deploy state \
+  --profile configs/local-robot-intrinsics.json \
+  --output calibration_data/heldout/state-01.json
+```
+
+Convert that reading into the touched point in `base_Link`:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from tron2_deployment.config import load_profile
+from tron2_deployment.geometry import pose_matrix
+from tron2_deployment.kinematics import RobotModel
+profile = load_profile('configs/local-robot-intrinsics.json')
+state = json.load(open('calibration_data/heldout/state-01.json'))
+side = 'left'   # the wrist that touched the point
+model = RobotModel(profile)
+model.set_state(state['arm_q14'], state['head_q2'])
+touched = pose_matrix(model.wrist_poses()[side]) @ pose_matrix(profile['pregrasp'][side]['wrist_to_tcp_pose7'])
+print(touched[:3, 3].tolist())
+PY
+```
+
+Repeat the `state` reading and the conversion for every point, always with the same `side`. If the installed end effector has no tip at the configured TCP origin, mount a temporary one or correct `pregrasp.<side>.wrist_to_tcp_pose7` first; otherwise the point you touched is not the point you measured.
+
+Spread the points out: at least three, not collinear, and varied in depth, height and horizontal position, because the check is a worst-case gate rather than an average. Choose the tolerance from the depth sensor's real accuracy and the deployment clearance budget; the `0.005` below means 5 mm and may be tighter than an RGB-D can support across the whole workspace.
 
 Save these real measurements in `calibration_data/heldout_points.json` under `points_camera` and `points_base`, each an equally sized `N x 3` array. Convert the arrays to the required NPZ format:
 

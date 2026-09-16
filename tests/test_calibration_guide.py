@@ -8,9 +8,22 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from tron2_deployment import calibration, camera, kinematics, robot
+from tron2_deployment import aruco, calibration, camera, kinematics, robot
 from tron2_deployment.calibration_guide import CalibrationGuide
 from tron2_deployment.config import load_profile
+
+
+def write_target_spec(path, marker=False, **overrides):
+    if marker:
+        value = {"schema_version": 1, "kind": "marker", "dictionary": "DICT_6X6_250",
+                 "marker_length_m": 0.05, "marker_id": 23}
+    else:
+        value = {"schema_version": 1, "kind": "board", "dictionary": "DICT_6X6_250",
+                 "marker_length_m": 0.04, "marker_separation_m": 0.012,
+                 "markers_x": 2, "markers_y": 3, "first_marker_id": 0}
+    value.update(overrides)
+    path.write_text(json.dumps(value))
+    return aruco.load_target_spec(path)
 
 
 @pytest.fixture
@@ -263,3 +276,69 @@ def test_programming_errors_are_not_silenced(profile, tmp_path, monkeypatch):
     with pytest.raises(TypeError, match="programmer error"):
         guide.save()
     assert not list((tmp_path / "session").glob(".capture-*"))
+
+
+@pytest.mark.parametrize("marker_kind", ["board", "marker"])
+def test_mock_aruco_walkthrough_solves_without_hardware(profile, tmp_path, marker_kind, monkeypatch):
+    def unexpected(*args, **kwargs):
+        pytest.fail("mock mode must not touch a real camera or robot")
+    monkeypatch.setattr(camera, "capture", unexpected)
+    monkeypatch.setattr(calibration, "record_sample", unexpected)
+    overrides = {"marker_length_m": 0.05} if marker_kind == "marker" else {}
+    path = tmp_path / "target.json"
+    target = write_target_spec(path, marker=(marker_kind == "marker"), **overrides)
+    guide = CalibrationGuide(profile, tmp_path / "session", stage="handeye", side="left",
+                             target=target, mock=True)
+    status = guide.status()
+    assert status["target"]["kind"] == marker_kind
+    assert status["pattern"] is None and status["square_m"] is None
+    assert status["detected_marker_ids"] == []
+    for index in range(9):
+        state = guide.save()
+        assert state["saved_count"] == index + 1
+        assert state["board_detected"]
+        assert state["detected_marker_ids"] == target["marker_ids"]
+    assert state["can_solve"]
+    result = guide.solve()["result"]
+    assert result["status"] == "unverified"
+    solution = json.loads(Path(result["path"]).read_text())
+    assert solution["verified"] is False and solution["source"] == "mock"
+    assert solution["target"]["kind"] == marker_kind
+    assert solution["target"]["marker_length_m"] == target["marker_length_m"]
+    expected = np.eye(4)
+    expected[:3, :3] = Rotation.from_euler("xyz", [.2, -.3, .1]).as_matrix()
+    expected[:3, 3] = [.2, -.1, .5]
+    np.testing.assert_allclose(solution["camera_to_base"], expected, atol=1e-6)
+    sample = json.loads(next((tmp_path / "session/samples").glob("*.json")).read_text())
+    assert sample["target"]["kind"] == marker_kind
+    assert "pattern" not in sample and "square_m" not in sample
+
+
+def test_target_spec_change_blocks_collection(profile, tmp_path):
+    path = tmp_path / "target.json"
+    target = write_target_spec(path)
+    guide = CalibrationGuide(profile, tmp_path / "session", stage="handeye", side="left",
+                             target=target, mock=True)
+    write_target_spec(path, marker_length_m=0.041)
+    with pytest.raises(ValueError, match="target spec changed"):
+        guide.preview()
+    assert guide.status()["saved_count"] == 0
+
+
+def test_aruco_target_is_handeye_only(profile, tmp_path):
+    target = write_target_spec(tmp_path / "target.json")
+    with pytest.raises(ValueError, match="hand-eye collection only"):
+        CalibrationGuide(profile, tmp_path / "session", target=target, mock=True)
+
+
+def test_cli_target_loader_requires_and_validates_spec(tmp_path):
+    from argparse import Namespace
+    from tron2_deployment.cli import calibration_target
+    with pytest.raises(ValueError, match="requires --target-spec"):
+        calibration_target(Namespace(target="aruco", target_spec=None, stage="handeye"))
+    with pytest.raises(ValueError, match="only to --target aruco"):
+        calibration_target(Namespace(target="chessboard", target_spec="x.json", stage="handeye"))
+    spec = write_target_spec(tmp_path / "target.json")
+    with pytest.raises(ValueError, match="hand-eye collection only"):
+        calibration_target(Namespace(target="aruco", target_spec=spec["spec_file"], stage="intrinsics"))
+    assert calibration_target(Namespace(target="chessboard", target_spec=None, stage="intrinsics")) is None

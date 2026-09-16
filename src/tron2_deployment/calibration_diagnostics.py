@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from .calibration import board_points, corners, validate_extrinsics
+from .calibration import board_points, corners, target_descriptor, validate_extrinsics
 from .config import finite, rigid
 
 
@@ -161,16 +161,26 @@ def handeye_diagnostics(solution: dict, samples: list[dict], sample_labels: list
         return {
             "kind": "handeye", "source": source, "mode": "eye_to_hand", "camera_id": camera_id,
             "side": side, "head_q2": head.tolist(), "sample_count": 0,
+            "target": solution.get("target"),
             "solution_sample_count": solution.get("samples"), "camera_to_base": transform.tolist(),
             "mean_target_to_wrist": None, "translation_rms_mm": None, "translation_max_mm": None,
             "rotation_rms_deg": None, "rotation_max_deg": None, "wrist_spread": None, "samples": [],
             "notes": ["No hand-eye sample files were supplied: only the saved camera transform can be displayed; consistency and wrist spread are unavailable.",
                       "Displaying a transform does not validate its accuracy. No acceptance or execution settings are changed."],
         }
-    pattern, square = _pattern(samples[0]["pattern"]), _square(samples[0]["square_m"])
-    if (("pattern" in solution and _pattern(solution["pattern"]) != pattern)
-            or ("square_m" in solution and not np.isclose(_square(solution["square_m"]), square, rtol=0, atol=1e-12))):
-        raise ValueError("sample board pattern or square_m differs from the hand-eye solution")
+    targets = [target_descriptor(sample) for sample in samples]
+    if any(value != targets[0] for value in targets):
+        fields = sorted({key for value in targets for key in value
+                         if value.get(key) != targets[0].get(key)})
+        raise ValueError("hand-eye samples must share one calibration target; "
+                         f"differing fields: {fields}")
+    solution_target = solution.get("target")
+    if solution_target is not None and solution_target != targets[0]:
+        raise ValueError("sample calibration target differs from the hand-eye solution")
+    for value in targets:
+        if value["kind"] == "chessboard":
+            _pattern(value["pattern"])
+            _square(value["square_m"])
     # Older samples contain only camera_id. Where imaging metadata is present,
     # reject mixed intrinsics/resolutions rather than blending incompatible PnP poses.
     first_frame = samples[0].get("frame", {})
@@ -200,9 +210,6 @@ def handeye_diagnostics(solution: dict, samples: list[dict], sample_labels: list
             raise ValueError("hand-eye samples must match the solution's stationary head pose")
         if "head_q2" in frame and np.max(np.abs(finite(frame["head_q2"], (2,), "frame head_q2") - head)) > 0.005:
             raise ValueError("hand-eye frame head pose differs from the solution")
-        if _pattern(sample["pattern"]) != pattern or not np.isclose(
-                _square(sample["square_m"]), square, rtol=0, atol=1e-12):
-            raise ValueError("hand-eye sample board pattern and square_m must be consistent")
         wrist = rigid(sample["robot_gripper_to_base"], f"sample {i + 1} wrist transform")
         board = rigid(sample["target_to_camera"], f"sample {i + 1} board transform")
         wrists.append(wrist)
@@ -246,6 +253,7 @@ def handeye_diagnostics(solution: dict, samples: list[dict], sample_labels: list
     return {
         "kind": "handeye", "source": source, "mode": "eye_to_hand", "camera_id": camera_id,
         "side": side, "head_q2": head.tolist(), "sample_count": len(samples),
+        "target": targets[0],
         "solution_sample_count": solution.get("samples"), "camera_to_base": transform.tolist(),
         "mean_target_to_wrist": mean.tolist(),
         "translation_rms_mm": float(np.sqrt(np.mean(translation_errors**2))),
