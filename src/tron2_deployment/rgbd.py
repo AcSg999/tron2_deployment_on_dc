@@ -64,12 +64,14 @@ class _BridgeFrame:
     timestamp_ms: int
     mime: str
     payload: bytes
+    received_timestamp_ms: int | None = None
 
 
 @dataclass(frozen=True)
 class _JointFrame:
     timestamp_ms: int
     positions: tuple[float, ...]
+    received_timestamp_ms: int | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,7 @@ def _decode_brdg(data: bytes) -> _BridgeFrame | None:
         timestamp_ms=struct.unpack_from("<Q", data, mime_end)[0],
         mime=data[6:mime_end].decode("utf-8", errors="replace"),
         payload=data[mime_end + 8:],
+        received_timestamp_ms=int(time.time() * 1000),
     )
 
 
@@ -137,7 +140,9 @@ def _decode_joint_message(message: str) -> _JointFrame | None:
         return None
     if len(positions) < 16 or not np.isfinite(positions).all():
         return None
-    return _JointFrame(timestamp_ms=timestamp_ms, positions=positions)
+    return _JointFrame(
+        timestamp_ms=timestamp_ms, positions=positions,
+        received_timestamp_ms=int(time.time() * 1000))
 
 
 def decode_raw_depth(frame: _BridgeFrame) -> np.ndarray:
@@ -202,6 +207,58 @@ def align_depth_to_color(depth_mm: np.ndarray, config: Tron2HighRgbdConfig) -> n
     return zbuffer.reshape(depth.shape)
 
 
+def _select_synchronized_bridge_frames(
+    color_frames: list[_BridgeFrame], depth_frames: list[_BridgeFrame],
+    joint_frames: list[_JointFrame] | None, max_skew_ms: int,
+    max_state_skew_ms: int,
+) -> tuple[_BridgeFrame, _BridgeFrame, _JointFrame | None] | None:
+    """Select a synchronized tuple from rolling bridge frame windows."""
+    best = None
+    best_key = None
+    for color in color_frames:
+        for depth in depth_frames:
+            image_skew = abs(color.timestamp_ms - depth.timestamp_ms)
+            if image_skew > max_skew_ms:
+                continue
+            joint = None
+            state_skew = 0
+            if joint_frames is not None:
+                if not joint_frames:
+                    continue
+                joint = min(
+                    joint_frames,
+                    key=lambda frame: abs(frame.timestamp_ms - color.timestamp_ms))
+                state_skew = abs(joint.timestamp_ms - color.timestamp_ms)
+                if state_skew > max_state_skew_ms:
+                    continue
+            key = (image_skew, state_skew)
+            if best_key is None or key < best_key:
+                best = (color, depth, joint)
+                best_key = key
+    return best
+
+
+def _bridge_head_is_stable(
+    joint_frames: list[_JointFrame], window_s: float, tolerance_rad: float,
+) -> bool:
+    if len(joint_frames) < 2:
+        return False
+    newest = joint_frames[-1].timestamp_ms
+    window_ms = round(window_s * 1000.0)
+    if newest - joint_frames[0].timestamp_ms < window_ms:
+        return False
+    recent = [
+        frame for frame in joint_frames
+        if newest - frame.timestamp_ms <= window_ms
+    ]
+    if len(recent) < 2:
+        return False
+    heads = np.asarray([frame.positions[14:16] for frame in recent])
+    return bool(
+        np.isfinite(heads).all()
+        and np.max(np.ptp(heads, axis=0)) <= tolerance_rad)
+
+
 class Tron2HighRgbdCapture:
     """One synchronized, color-aligned RGB-D observation from the high camera."""
 
@@ -213,19 +270,22 @@ class Tron2HighRgbdCapture:
     def close(self) -> None:
         """Bridge capture owns no persistent connection between calls."""
 
-    async def _frames(self, topic: str) -> list[_BridgeFrame]:
+    async def _frames(
+        self, topic: str, *, updated: asyncio.Event | None = None,
+        keep_streaming: bool = False, sink: list[_BridgeFrame] | None = None,
+    ) -> list[_BridgeFrame]:
         try:
             import websockets
         except ImportError as error:  # pragma: no cover - deployment dependency
             raise RuntimeError("websockets is required for TRON2 bridge capture") from error
-        frames: list[_BridgeFrame] = []
+        frames: list[_BridgeFrame] = [] if sink is None else sink
         deadline = time.monotonic() + self.config.timeout_s
         url = _bridge_url(self.config, topic)
         async with websockets.connect(
                 url, ssl=_bridge_ssl_context(url, self.config),
                 additional_headers=_bridge_headers(self.config),
-                open_timeout=self.config.timeout_s) as socket:
-            while len(frames) < self.config.sample_count:
+                open_timeout=self.config.timeout_s, close_timeout=0.25) as socket:
+            while keep_streaming or len(frames) < self.config.sample_count:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -248,16 +308,23 @@ class Tron2HighRgbdCapture:
                     frame = _decode_brdg(message)
                     if frame is not None:
                         frames.append(frame)
+                        if keep_streaming and len(frames) > self.config.sample_count:
+                            del frames[:-self.config.sample_count]
+                        if updated is not None:
+                            updated.set()
         if not frames:
             raise TimeoutError(f"TRON2 bridge produced no frames for {topic}")
         return frames
 
-    async def _joint_frames(self) -> list[_JointFrame]:
+    async def _joint_frames(
+        self, *, updated: asyncio.Event | None = None,
+        keep_streaming: bool = False, sink: list[_JointFrame] | None = None,
+    ) -> list[_JointFrame]:
         try:
             import websockets
         except ImportError as error:  # pragma: no cover - deployment dependency
             raise RuntimeError("websockets is required for TRON2 bridge capture") from error
-        frames: list[_JointFrame] = []
+        frames: list[_JointFrame] = [] if sink is None else sink
         deadline = time.monotonic() + self.config.timeout_s
         url = _bridge_url(
             self.config, self.config.joint_state_topic,
@@ -265,8 +332,8 @@ class Tron2HighRgbdCapture:
         async with websockets.connect(
                 url, ssl=_bridge_ssl_context(url, self.config),
                 additional_headers=_bridge_headers(self.config),
-                open_timeout=self.config.timeout_s) as socket:
-            while len(frames) < self.config.sample_count:
+                open_timeout=self.config.timeout_s, close_timeout=0.25) as socket:
+            while keep_streaming or len(frames) < self.config.sample_count:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -280,6 +347,13 @@ class Tron2HighRgbdCapture:
                 frame = _decode_joint_message(message)
                 if frame is not None:
                     frames.append(frame)
+                    history_size = max(
+                        self.config.sample_count,
+                        self.config.ros_joint_history_size)
+                    if keep_streaming and len(frames) > history_size:
+                        del frames[:-history_size]
+                    if updated is not None:
+                        updated.set()
         if not frames:
             raise TimeoutError(
                 f"TRON2 bridge produced no joint frames for "
@@ -288,37 +362,94 @@ class Tron2HighRgbdCapture:
 
     async def _capture_async(
         self, *, include_joint_state: bool,
-    ) -> tuple[list[_BridgeFrame], list[_BridgeFrame], list[_JointFrame]]:
+    ) -> tuple[_BridgeFrame, _BridgeFrame, _JointFrame | None, bool]:
+        # Bridge subscriptions have different cold-start times. In particular,
+        # raw depth can attach several seconds after compressed color. Keep all
+        # sockets alive until their rolling windows contain one synchronized
+        # observation instead of letting the faster stream finish first.
+        updated = asyncio.Event()
+        color_frames: list[_BridgeFrame] = []
+        depth_frames: list[_BridgeFrame] = []
+        joint_frames: list[_JointFrame] = []
+        tasks = [
+            asyncio.create_task(self._frames(
+                HIGH_COLOR_TOPIC, updated=updated, keep_streaming=True,
+                sink=color_frames)),
+            asyncio.create_task(self._frames(
+                HIGH_DEPTH_TOPIC, updated=updated, keep_streaming=True,
+                sink=depth_frames)),
+        ]
         if include_joint_state:
-            return await asyncio.gather(
-                self._frames(HIGH_COLOR_TOPIC), self._frames(HIGH_DEPTH_TOPIC),
-                self._joint_frames())
-        color, depth = await asyncio.gather(
-            self._frames(HIGH_COLOR_TOPIC), self._frames(HIGH_DEPTH_TOPIC))
-        return color, depth, []
+            tasks.append(asyncio.create_task(self._joint_frames(
+                updated=updated, keep_streaming=True, sink=joint_frames)))
+        readers = [tasks[0], tasks[1], *(tasks[2:] if include_joint_state else [])]
+        for task in readers:
+            task.add_done_callback(lambda _task: updated.set())
+        deadline = time.monotonic() + self.config.timeout_s
+        stable_joint_frame = None
+        try:
+            while True:
+                selected = _select_synchronized_bridge_frames(
+                    color_frames, depth_frames,
+                    (joint_frames if include_joint_state
+                     and stable_joint_frame is None else None),
+                    self.config.max_skew_ms, self.config.max_state_skew_ms)
+                if selected is not None:
+                    if stable_joint_frame is not None:
+                        return (selected[0], selected[1], stable_joint_frame, True)
+                    return (*selected, False)
+                if (include_joint_state
+                        and stable_joint_frame is None
+                        and _bridge_head_is_stable(
+                            joint_frames,
+                            self.config.ros_head_stability_window_s,
+                            self.config.ros_head_stability_rad)):
+                    # This gateway may pause image clients while its joint
+                    # subscriber is active. Preserve the measured stable head,
+                    # close only that socket, and require a newly received
+                    # synchronized RGB-D pair before returning.
+                    stable_joint_frame = joint_frames[-1]
+                    tasks[2].cancel()
+                    readers = tasks[:2]
+                    color_frames.clear()
+                    depth_frames.clear()
+                    continue
+                for task in readers:
+                    if task.done() and task.exception() is not None:
+                        raise task.exception()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    counts = (
+                        f"color={len(color_frames)}, depth={len(depth_frames)}, "
+                        f"joint={len(joint_frames)}")
+                    raise TimeoutError(
+                        "TRON2 bridge produced no synchronized high-camera "
+                        f"RGB-D and joint state before timeout ({counts})")
+                updated.clear()
+                try:
+                    await asyncio.wait_for(updated.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def capture(self, *, include_joint_state: bool = True
                 ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
-        color_frames, depth_frames, joint_frames = asyncio.run(
+        color_frame, depth_frame, joint_frame, stable_head_fallback = asyncio.run(
             self._capture_async(include_joint_state=include_joint_state))
-        color_frame, depth_frame = min(
-            ((color, depth) for color in color_frames for depth in depth_frames),
-            key=lambda pair: abs(pair[0].timestamp_ms - pair[1].timestamp_ms),
-        )
         skew_ms = abs(color_frame.timestamp_ms - depth_frame.timestamp_ms)
         if skew_ms > self.config.max_skew_ms:
             raise RuntimeError(
                 f"TRON2 RGB/depth skew {skew_ms}ms exceeds {self.config.max_skew_ms}ms")
-        joint_frame = None
         state_skew_ms = None
         if include_joint_state:
-            joint_frame = min(
-                joint_frames,
-                key=lambda frame: abs(
-                    frame.timestamp_ms - color_frame.timestamp_ms))
+            assert joint_frame is not None
             state_skew_ms = abs(
                 joint_frame.timestamp_ms - color_frame.timestamp_ms)
-            if state_skew_ms > self.config.max_state_skew_ms:
+            if (state_skew_ms > self.config.max_state_skew_ms
+                    and not stable_head_fallback):
                 raise RuntimeError(
                     f"TRON2 RGB/joint skew {state_skew_ms}ms exceeds "
                     f"{self.config.max_state_skew_ms}ms")
@@ -328,14 +459,24 @@ class Tron2HighRgbdCapture:
             raise ValueError("TRON2 high color and depth resolutions differ")
         aligned_depth = align_depth_to_color(raw_depth, self.config)
         return color, aligned_depth, {
+            "transport": "bridge",
             "color_timestamp_ms": color_frame.timestamp_ms,
             "depth_timestamp_ms": depth_frame.timestamp_ms,
+            "color_received_timestamp_ms": (
+                color_frame.received_timestamp_ms or color_frame.timestamp_ms),
+            "depth_received_timestamp_ms": (
+                depth_frame.received_timestamp_ms or depth_frame.timestamp_ms),
             "skew_ms": int(skew_ms),
             "raw_depth_valid_fraction": float(np.mean((raw_depth > 0) & (raw_depth < 10_000))),
             "aligned_depth_valid_fraction": float(np.mean(aligned_depth > 0)),
             **({
                 "joint_timestamp_ms": joint_frame.timestamp_ms,
                 "state_skew_ms": int(state_skew_ms),
+                "state_alignment": (
+                    "stable_head_bridge_fallback" if stable_head_fallback
+                    else "nearest_bridge_timestamp"),
+                "state_header_skew_exceeded": bool(
+                    state_skew_ms > self.config.max_state_skew_ms),
                 "head_pitch_yaw": list(joint_frame.positions[14:16]),
             } if joint_frame is not None else {}),
         }

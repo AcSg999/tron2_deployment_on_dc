@@ -12,7 +12,61 @@
 
 模型必须描述实际安装的腕部与被动附件。当前适配器只映射 14 个手臂关节和两个头部关节；其他关节必须固定，同时保留其碰撞几何。同步机器人、相机和主机时钟。采集代码会拒绝过期图像，以及缺失或不一致的头部反馈。
 
-测量棋盘格方格边长，并统计**内角点**数量。示例使用 `9x6` 个内角点、方格边长 `0.025` m 的标定板；这两个参数都应改为实际数值。采集手眼样本时，将标定板刚性固定在所选腕部，同一组样本内不得改变安装关系。通过机器人另外经过审核的定位界面调整手臂姿态，待其稳定后逐次采集。采集程序本身只读取相机和关节状态。手眼采集也可改用 ArUco 目标，而不必把棋盘固定在腕上；见手眼采集一节中的 ArUco 小节。
+### 读取固定头部姿态
+
+在当前 TRON2 部署中，`/joint_states` 是开发主机上的 ROS 2 Foxy 话题，不是其 ROS 1 Noetic Master 上的话题。因此，对 `10.192.1.4:11311` 执行 ROS 1 `rostopic list` 看不到它。登录开发主机、加载 Foxy，并按关节名称匹配位置，不要依赖固定数组下标：
+
+```bash
+ssh -o BatchMode=yes guest@10.192.1.4 'bash -s' <<'REMOTE'
+source /opt/ros/foxy/setup.bash
+export ROS_DOMAIN_ID=0
+python3 - <<'PY'
+import json
+import time
+import rclpy
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import JointState
+
+rclpy.init()
+node = rclpy.create_node('read_head_joint_state_once')
+head_q2 = None
+
+def receive(message):
+    global head_q2
+    positions = dict(zip(message.name, message.position))
+    required = ('head_pitch_Joint', 'head_yaw_Joint')
+    if all(name in positions for name in required):
+        head_q2 = [positions[name] for name in required]
+
+node.create_subscription(JointState, '/joint_states', receive,
+                         qos_profile_sensor_data)
+deadline = time.monotonic() + 5.0
+while head_q2 is None and time.monotonic() < deadline:
+    rclpy.spin_once(node, timeout_sec=0.5)
+node.destroy_node()
+rclpy.shutdown()
+if head_q2 is None:
+    raise SystemExit('no head joint state received within 5 seconds')
+print(json.dumps({'head_q2': head_q2}, indent=2))
+PY
+REMOTE
+```
+
+`BatchMode=yes` 强制 SSH 仅使用已有公钥，不会提示输入密码；以上整个代码块都在开发主机上执行。在 DC 的 `dc` 用户环境中已验证该免密登录可用。如果命令直接报告 `Permission denied (publickey)`，先运行 `whoami`，确认正在 DC 上以配置了该公钥的用户执行，而不是输入或保存未知密码。
+
+将输出的 `[head_pitch_Joint, head_yaw_Joint]` 值按此顺序填入 `calibration.head_q2`，单位为弧度。先把头部放到整个内参与手眼采集期间都将保持不动的姿态，再读取这些值。头部移动后必须重新读取；不能因为外观看起来水平就假定它是 `[0, 0]`。
+
+### 确认物体半径对应的对象
+
+`scene.object_radius_m` 属于 `vision.mesh_id` 所跟踪的任务物体——例如注册给 FoundationPose 的 mesh 是碗时，它就是碗的半径。它不是机器人、夹爪、相机、标定板或桌子的半径。该值以米为单位，表示以已注册 mesh 原点为球心、在应用实际部署的 mesh 缩放后能包住所有 mesh 顶点的保守球半径：
+
+```text
+scene.object_radius_m >= max(norm(vertex_m - mesh_origin_m))
+```
+
+如果 mesh 原点偏离物体中心，所需球半径可能明显大于物体宽度的一半。这个值用于碰撞包络，不同于 `pregrasp.<side>.radius_m`；后者用于选择轴对称物体表面上的接近锚点。应将 mesh ID、缩放、原点约定和计算出的包围半径一起记录；其中任何一项变化都会使该值失效。
+
+测量棋盘格方格边长，并统计**内角点**数量。下方内参命令使用当前 `7x9` 个内角点、方格边长 `0.020` m 的标定板；手眼示例仍使用 `9x6` 个内角点、方格边长 `0.025` m 的标定板。所有参数都必须与实际标定板一致。采集手眼样本时，将标定板刚性固定在所选腕部，同一组样本内不得改变安装关系。通过机器人另外经过审核的定位界面调整手臂姿态，待其稳定后逐次采集。采集程序本身只读取相机和关节状态。手眼采集也可改用 ArUco 目标，而不必把棋盘固定在腕上；见手眼采集一节中的 ArUco 小节。
 
 ## 通过可视化引导拟合彩色内参
 
@@ -21,7 +75,7 @@
 ```bash
 .venv/bin/tron2-deploy calibration-guide \
   --profile configs/local-robot-seed.json --stage intrinsics \
-  --pattern 9x6 --square-m 0.025 \
+  --pattern 7x9 --square-m 0.020 \
   --output calibration_data/intrinsics-guided
 ```
 

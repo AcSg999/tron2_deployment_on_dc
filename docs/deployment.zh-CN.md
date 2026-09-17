@@ -98,12 +98,17 @@ cp configs/robot.example.json configs/local-robot-seed.json
 复用设备已安装的 ROS Noetic 环境。Noetic 面向 Ubuntu 20.04 和系统 Python 3.8，参见 [ROS REP 3](https://github.com/ros-infrastructure/rep/blob/master/rep-0003.rst#noetic-ninjemys-may-2020---may-2025)。本应用在独立 Python 3.10 环境中使用 Noetic 的 Python 消息和 `rospy`，而 `roscore` 等已安装的可执行程序继续使用系统 Python。安装脚本会提供 Python 3.10 的辅助依赖，包括 YAML 和 `netifaces`。无需连接机器人即可验证该组合：
 
 ```bash
-source /opt/ros/noetic/setup.bash
+# 根据当前交互式 shell 选择匹配的 ROS 初始化脚本。
+if [ -n "${ZSH_VERSION:-}" ]; then
+  source /opt/ros/noetic/setup.zsh
+else
+  source /opt/ros/noetic/setup.bash
+fi
 command -v roscore rosrun rviz
 .venv/bin/python -c "import yaml, netifaces, rospkg, defusedxml, rospy, rosgraph, genpy, message_filters; from sensor_msgs.msg import Image, CompressedImage, JointState; from geometry_msgs.msg import Point; from visualization_msgs.msg import Marker, MarkerArray; print('ROS imports OK')"
 ```
 
-如果当前机器人 URDF 依赖 DC 现有工作空间中的软件包，再加载 `/home/dc/test_ws/devel/setup.bash`；其他设备使用其实际工作空间路径。辅助依赖不会安装 `rospy`、ROS 消息、`roscore`、`robot_state_publisher` 或 RViz，这些组件来自已安装的 ROS 环境。Bridge 采集不需要本地 ROS，但 RViz 仍然需要。
+如果当前机器人 URDF 依赖 DC 现有工作空间中的软件包，在 zsh 中再加载 `/home/dc/test_ws/devel/setup.zsh`，在 Bash 中则加载 `/home/dc/test_ws/devel/setup.bash`；其他设备使用其实际工作空间路径。不要在 zsh 中加载 `setup.bash`：Catkin 的 Bash 包装脚本可能错误解析安装目录，转而从当前工作目录查找 `setup.sh`。辅助依赖不会安装 `rospy`、ROS 消息、`roscore`、`robot_state_publisher` 或 RViz，这些组件来自已安装的 ROS 环境。Bridge 采集不需要本地 ROS，但 RViz 仍然需要。
 
 相机适配器直接使用 NumPy/OpenCV 解码图像，不使用 `cv_bridge`。设备上已安装的 `cv_bridge` 二进制链接到 Python 3.8，因此不应作为 Python 3.10 的依赖。不要通过给项目 `PYTHONPATH` 添加 `/usr/lib/python3/dist-packages` 来混入 Python 3.8 系统软件包。导入成功只验证软件兼容性，相机采集和真实执行仍需完成后续检查。
 

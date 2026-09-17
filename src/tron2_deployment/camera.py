@@ -92,12 +92,18 @@ def capture(profile, mock=False, undistort=True):
         rgb = cv2.remap(rgb, *maps, interpolation=cv2.INTER_LINEAR)
         depth = cv2.remap(depth, *maps, interpolation=cv2.INTER_NEAREST)
     now = time.time()
-    captured = float(sync["color_timestamp_ms"]) / 1000.0
+    # The deployed WebSocket gateway stamps frames with the robot's wall clock
+    # when forwarding them, rather than preserving the ROS sensor header. Use
+    # the local receipt time for freshness while retaining gateway timestamps
+    # in sensor_sync for RGB/depth synchronization and diagnostics.
+    freshness_timestamp_ms = sync.get(
+        "color_received_timestamp_ms", sync["color_timestamp_ms"])
+    captured = float(freshness_timestamp_ms) / 1000.0
     max_age = float(config.get("max_frame_age_s", 0.75))
     if not np.isfinite(max_age) or max_age <= 0:
         raise ValueError("camera.max_frame_age_s must be positive and finite")
-    # ROS and bridge timestamps must share the deployment machine's wall clock
-    # (synchronized robot/host clocks). Never refresh a stale sensor timestamp.
+    # Native ROS timestamps must share the deployment machine's wall clock.
+    # The bridge path instead supplies a local receipt timestamp above.
     if (not np.isfinite(captured) or captured <= 0 or now - captured > max_age
             or captured - now > 0.25):
         raise ValueError("captured RGB-D frame is stale or camera/host clocks are not synchronized")

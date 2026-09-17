@@ -98,12 +98,17 @@ Synchronize robot and workstation wall clocks. Capture uses the sensor timestamp
 Reuse the device's installed ROS Noetic environment. Noetic targets Ubuntu 20.04 and system Python 3.8; see [ROS REP 3](https://github.com/ros-infrastructure/rep/blob/master/rep-0003.rst#noetic-ninjemys-may-2020---may-2025). This application uses Noetic's Python messages and `rospy` from its separate Python 3.10 environment, while installed executables such as `roscore` retain system Python. The installer supplies Python 3.10 helper dependencies, including YAML and `netifaces`. Verify this combination without connecting to the robot:
 
 ```bash
-source /opt/ros/noetic/setup.bash
+# Match the ROS setup script to the current interactive shell.
+if [ -n "${ZSH_VERSION:-}" ]; then
+  source /opt/ros/noetic/setup.zsh
+else
+  source /opt/ros/noetic/setup.bash
+fi
 command -v roscore rosrun rviz
 .venv/bin/python -c "import yaml, netifaces, rospkg, defusedxml, rospy, rosgraph, genpy, message_filters; from sensor_msgs.msg import Image, CompressedImage, JointState; from geometry_msgs.msg import Point; from visualization_msgs.msg import Marker, MarkerArray; print('ROS imports OK')"
 ```
 
-If the current robot URDF requires packages from the existing DC workspace, additionally source `/home/dc/test_ws/devel/setup.bash`; use the actual workspace path on another device. The helper extras do not install `rospy`, ROS messages, `roscore`, `robot_state_publisher` or RViz; these come from the installed ROS environment. Bridge capture does not require local ROS, but RViz still does.
+If the current robot URDF requires packages from the existing DC workspace, additionally source `/home/dc/test_ws/devel/setup.zsh` from zsh or `/home/dc/test_ws/devel/setup.bash` from Bash; use the actual workspace path on another device. Do not source a `setup.bash` file from zsh: Catkin's Bash wrapper can resolve its installation directory incorrectly and try to load `setup.sh` from the current working directory. The helper extras do not install `rospy`, ROS messages, `roscore`, `robot_state_publisher` or RViz; these come from the installed ROS environment. Bridge capture does not require local ROS, but RViz still does.
 
 The camera adapter decodes images directly with NumPy/OpenCV and does not use `cv_bridge`. The device's installed `cv_bridge` binary is linked to Python 3.8, so it is not a Python 3.10 dependency. Keep Python 3.8 system packages out of the project environment rather than adding `/usr/lib/python3/dist-packages` to its `PYTHONPATH`. Passing imports verifies software compatibility only; camera acquisition and physical execution still require the later checks.
 

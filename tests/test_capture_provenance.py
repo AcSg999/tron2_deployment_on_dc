@@ -51,7 +51,7 @@ def test_real_camera_resolution_is_explicit():
         config.validate_profile(profile)
 
 
-def _fake_capture_driver(monkeypatch, *, stamp, head=(0, 0)):
+def _fake_capture_driver(monkeypatch, *, stamp, head=(0, 0), received_stamp=None):
     class Driver:
         closed = False
 
@@ -59,9 +59,12 @@ def _fake_capture_driver(monkeypatch, *, stamp, head=(0, 0)):
             self.config = config
 
         def capture(self, **kwargs):
+            sync = {"head_pitch_yaw": list(head), "color_timestamp_ms": stamp}
+            if received_stamp is not None:
+                sync["color_received_timestamp_ms"] = received_stamp
             return (np.zeros((480, 640, 3), dtype=np.uint8),
                     np.full((480, 640), 1000, dtype=np.uint16),
-                    {"head_pitch_yaw": list(head), "color_timestamp_ms": stamp})
+                    sync)
 
         def close(self):
             self.closed = True
@@ -75,6 +78,15 @@ def test_capture_retains_acquisition_age_instead_of_refreshing_it(monkeypatch):
     frame = camera.capture(real_camera_profile())
     assert frame["capture_timestamp_s"] == 99.5
     assert frame["timestamp_s"] == 100.0
+
+
+def test_bridge_capture_uses_local_receipt_time_for_freshness(monkeypatch):
+    monkeypatch.setattr(camera.time, "time", lambda: 100.0)
+    _fake_capture_driver(
+        monkeypatch, stamp=87_000, received_stamp=99_900)
+    frame = camera.capture(real_camera_profile())
+    assert frame["capture_timestamp_s"] == 99.9
+    assert frame["sensor_sync"]["color_timestamp_ms"] == 87_000
 
 
 @pytest.mark.parametrize("stamp", [0, 98_000, 101_000])

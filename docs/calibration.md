@@ -12,7 +12,61 @@ Copy `configs/robot.example.json` to `configs/local-robot-seed.json` as describe
 
 The model must describe the installed wrists and passive attachments. The current adapter maps exactly 14 arm joints and two head joints; other joints must be fixed while retaining their collision geometry. Synchronize robot, camera, and host clocks. The acquisition code rejects stale images and missing or inconsistent head feedback.
 
-Measure the chessboard square size and count **inner corners**. Examples use a `9x6` inner-corner board with `0.025` m squares; change both arguments to match the actual board. During hand-eye sampling, rigidly attach the board to the selected wrist. Its mounting must not change within one sample set. Use the robot's separately reviewed positioning interface to change arm poses, then wait for settling before each capture. Collection itself only reads camera and joint state. Hand-eye sampling can use an ArUco target instead of a wrist-mounted chessboard; see the ArUco subsection under hand-eye collection.
+### Read the fixed head pose
+
+On the current TRON2 deployment, `/joint_states` is a ROS 2 Foxy topic on the development host, not a topic on its ROS 1 Noetic master. A ROS 1 `rostopic list` against `10.192.1.4:11311` therefore does not show it. Log in to the development host, load Foxy, and map joint names to positions instead of relying on fixed array indices:
+
+```bash
+ssh -o BatchMode=yes guest@10.192.1.4 'bash -s' <<'REMOTE'
+source /opt/ros/foxy/setup.bash
+export ROS_DOMAIN_ID=0
+python3 - <<'PY'
+import json
+import time
+import rclpy
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import JointState
+
+rclpy.init()
+node = rclpy.create_node('read_head_joint_state_once')
+head_q2 = None
+
+def receive(message):
+    global head_q2
+    positions = dict(zip(message.name, message.position))
+    required = ('head_pitch_Joint', 'head_yaw_Joint')
+    if all(name in positions for name in required):
+        head_q2 = [positions[name] for name in required]
+
+node.create_subscription(JointState, '/joint_states', receive,
+                         qos_profile_sensor_data)
+deadline = time.monotonic() + 5.0
+while head_q2 is None and time.monotonic() < deadline:
+    rclpy.spin_once(node, timeout_sec=0.5)
+node.destroy_node()
+rclpy.shutdown()
+if head_q2 is None:
+    raise SystemExit('no head joint state received within 5 seconds')
+print(json.dumps({'head_q2': head_q2}, indent=2))
+PY
+REMOTE
+```
+
+`BatchMode=yes` forces SSH to use an existing public key and prevents a password prompt; the complete block above runs on the development host. Passwordless login has been verified from the `dc` user's environment on the DC. If the command immediately reports `Permission denied (publickey)`, run `whoami` and confirm that it is being run on the DC as the user for whom the key is configured, rather than entering or storing an unknown password.
+
+Copy the printed `[head_pitch_Joint, head_yaw_Joint]` values, in radians, into `calibration.head_q2`. Read them only after placing the head in the pose that will remain fixed throughout intrinsic and hand-eye collection. Re-read them if the head moves; do not assume that a visually level head is `[0, 0]`.
+
+### Identify the object radius
+
+`scene.object_radius_m` belongs to the task object tracked under `vision.mesh_id`—for example, the bowl when the registered FoundationPose mesh is the bowl. It is not the robot, gripper, camera, calibration board, or table radius. In metres, it is the radius of a conservative sphere centred at the registered mesh origin that contains every mesh vertex after applying the deployed mesh scale:
+
+```text
+scene.object_radius_m >= max(norm(vertex_m - mesh_origin_m))
+```
+
+If the mesh origin is off-centre, the required sphere may be much larger than half the object's width. This collision-envelope value is distinct from `pregrasp.<side>.radius_m`, which selects an axial object's approach-surface anchor. Record the mesh ID, scale, origin convention, and computed enclosing radius together; changing any of them invalidates the value.
+
+Measure the chessboard square size and count **inner corners**. The intrinsic command below uses the current `7x9` inner-corner board with `0.020` m squares; the hand-eye examples still use a `9x6` inner-corner board with `0.025` m squares. Every argument must match the physical target. During hand-eye sampling, rigidly attach the board to the selected wrist. Its mounting must not change within one sample set. Use the robot's separately reviewed positioning interface to change arm poses, then wait for settling before each capture. Collection itself only reads camera and joint state. Hand-eye sampling can use an ArUco target instead of a wrist-mounted chessboard; see the ArUco subsection under hand-eye collection.
 
 ## Fit color intrinsics with visual guidance
 
@@ -21,7 +75,7 @@ Start the helper from the repository root in the configured camera environment. 
 ```bash
 .venv/bin/tron2-deploy calibration-guide \
   --profile configs/local-robot-seed.json --stage intrinsics \
-  --pattern 9x6 --square-m 0.025 \
+  --pattern 7x9 --square-m 0.020 \
   --output calibration_data/intrinsics-guided
 ```
 
