@@ -251,7 +251,24 @@ Take one rectified RGB-D capture and keep it with the measurements:
   --output calibration_data/heldout/frame
 ```
 
-That writes `color.png` (rectified), `depth.png` (16-bit millimetres, aligned to colour) and `frame.json`. Read the pixel of each chosen point in `color.png`, list them below, and back-project them:
+That writes `color.png` (rectified), `depth.png` (16-bit millimetres, aligned to colour) and `frame.json`. In a terminal with a graphical desktop, run the following command. Left-click the held-out points in `color.png` in order, then press Enter (or middle-click) to finish. The terminal prints a `pixels` list ready to copy. You can zoom with the figure toolbar first; leave zoom mode before selecting points.
+
+```bash
+.venv/bin/python - <<'PY'
+import matplotlib.pyplot as plt
+
+image = plt.imread('calibration_data/heldout/frame/color.png')
+fig, ax = plt.subplots()
+ax.imshow(image, interpolation='nearest')
+ax.set_title('Left-click points in order; Enter or middle-click to finish')
+chosen = plt.ginput(n=-1, timeout=0)
+plt.close(fig)
+pixels = [(round(x), round(y)) for x, y in chosen]
+print(f'pixels = {pixels}')
+PY
+```
+
+Copy the printed `pixels` list into the script below and back-project it. Coordinates are `(u, v)`, with `(0, 0)` at the image's top-left corner:
 
 ```bash
 .venv/bin/python - <<'PY'
@@ -276,7 +293,27 @@ Use this rectified capture, not an intrinsic `--raw` view: `depth.png` is alread
 
 ### Base-frame coordinates
 
-For the same points, jog the arm through its own reviewed controls until the tip that coincides with the configured TCP frame touches the point, then read the joints:
+First calibrate the position of a temporary or permanent tip. Choose one fixed point that can be touched repeatably. Through the robot's own reviewed controls, touch that point with the **same tip** on one arm in at least four clearly different wrist tilt orientations; read the joints after each stable contact. The commands below only read state. The fitting script runs offline forward kinematics and does not command motion. Use a repeatable point or hole rather than different places on a broad mark.
+
+```bash
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-01.json
+# Change wrist tilt through the robot controls; touch the same point with the same tip
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-02.json
+# Change wrist tilt again and repeat contact
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-03.json
+# Fourth distinct tilt
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-04.json
+
+.venv/bin/python scripts/solve_tcp_pivot.py \
+  --profile configs/local-robot-intrinsics.json --side left \
+  --states calibration_data/tcp-pivot/pose-{01,02,03,04}.json \
+  > calibration_data/tcp-pivot/result.json
+cat calibration_data/tcp-pivot/result.json
+```
+
+`tip_in_wrist_m` gives the first three numbers of `wrist_to_tcp_pose7`. `touch_residuals_mm` and `max_residual_mm` show contact consistency; the default maximum residual is 5 mm, adjustable with `--max-residual-mm` to match measurement accuracy. Insufficient orientation spread or excessive residual causes an error; collect new samples. Fit residuals check only these contacts, not independent acceptance. The script strictly checks limits on the selected arm. If only the other arm's measured joints exceed configured limits, it clips them for offline FK and lists them under `ignored_other_arm_limit_violations`; the selected wrist calculation is unaffected. Still investigate any discrepancy between robot readings and configured limits separately. Touching one fixed point **cannot determine TCP orientation**: rotating the TCP axes leaves the tip at that point. Independently determine the TCP `+Z` approach and `+Y` up axes from the installed tool geometry, then pass their unit quaternion in wrist coordinates as `--tcp-quat-wxyz QW QX QY QZ` to the same command; only then does the result include a complete `wrist_to_tcp_pose7`. Use `1 0 0 0` only if measurements confirm the TCP and wrist axes align. The script does not edit the profile; inspect the result and enter it in `pregrasp.left.wrist_to_tcp_pose7` (use `--side right` and separate samples for the right arm).
+
+Then touch **several different points** for independent camera-extrinsic validation with the calibrated TCP-origin tip and read the joints:
 
 ```bash
 .venv/bin/tron2-deploy state \
@@ -302,7 +339,7 @@ print(touched[:3, 3].tolist())
 PY
 ```
 
-Repeat the `state` reading and the conversion for every point, always with the same `side`. If the installed end effector has no tip at the configured TCP origin, mount a temporary one or correct `pregrasp.<side>.wrist_to_tcp_pose7` first; otherwise the point you touched is not the point you measured.
+Repeat the `state` reading and the conversion for every point, always with the same `side`. Confirm that the same calibrated tip touches each point and that the tool mount has not moved; otherwise recalibrate the tip position.
 
 Spread the points out: at least three, not collinear, and varied in depth, height and horizontal position, because the check is a worst-case gate rather than an average. Choose the tolerance from the depth sensor's real accuracy and the deployment clearance budget; the `0.005` below means 5 mm and may be tighter than an RGB-D can support across the whole workspace.
 
@@ -319,6 +356,33 @@ np.savez('calibration_data/heldout_points.npz',
          points_base=np.asarray(points['points_base'], dtype=float))
 PY
 ```
+
+### Optional: generate depth-free validation points from a chessboard
+
+You may reuse the **physical chessboard** used for intrinsics, but take new validation images after solving extrinsics. Do not reuse hand-eye fitting images or derive base points through the extrinsic transform being checked. The script reads the inner-corner count and measured square size from the intrinsic JSON, detects corners in the color image, estimates board pose with PnP, and uses saved joint states and the calibrated TCP to locate the touched corners in `base_Link`. It does not read depth, connect to the robot, or command motion.
+
+Fix the board where the arm can reach it. For each placement, use `capture --raw` to save original color. Keep the board, camera head, and tip mount stationary while the tip touches the selected **inner corners**. Save a distinct state file after each stable touch. Move the arm only through its existing reviewed controls. If contact moves the board, capture again. After moving the board to a new placement, fix it before taking another image. The example uses a `7x9` inner-corner board; row and column indices are zero-based. Visually confirm the detected corner ordering, especially the first corner. `view-01` covers the first two touches; fix the board at a new placement before capturing `view-02` and recording the third touch.
+
+```bash
+.venv/bin/tron2-deploy capture --raw --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/view-01
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/state-01.json
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/state-02.json
+# Fix the board at a second placement, then capture it again
+.venv/bin/tron2-deploy capture --raw --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/view-02
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/state-03.json
+
+.venv/bin/python scripts/validate_chessboard_extrinsics.py \
+  --profile configs/local-robot-intrinsics.json \
+  --intrinsics calibration_data/intrinsics-guided/intrinsics.json \
+  --handeye calibration_data/handeye-right-guided/handeye-right.json \
+  --side left --max-error-m 0.005 --max-reprojection-px 2.0 \
+  --touch calibration_data/heldout-board/view-01 0 0 calibration_data/heldout-board/state-01.json \
+  --touch calibration_data/heldout-board/view-01 8 6 calibration_data/heldout-board/state-02.json \
+  --touch calibration_data/heldout-board/view-02 2 4 calibration_data/heldout-board/state-03.json \
+  --output calibration_data/heldout-board/points.npz
+```
+
+Each `--touch` supplies a capture directory, inner-corner row, column, and the corresponding state file; add more than three touches when possible. First open `points-marked/view-*.png` and confirm each red circle marks the corner actually touched. The script prints per-point 3D errors, the maximum error, and PnP reprojection errors for each image. It writes `points.npz` and `points.report.json`. The example `--max-reprojection-px 2.0` is a quality gate; choose it from observed corner quality and inspect the images and intrinsics if it fails. On 3D validation failure the script exits with code 1 but retains diagnostics. After the check passes, supply `points.npz` to `apply-calibration` below as `--validation-points`. Corners in one image share a PnP pose, so repeat at different workspace positions and board tilts. PnP still depends on intrinsics and board dimensions, while contact depends on TCP accuracy and board rigidity. A small reprojection error alone cannot establish millimetre-scale 3D accuracy. Set the maximum error from the measurement and deployment clearance budget.
 
 The following example accepts a maximum point error of 5 mm. Choose the actual threshold from the deployment's measurement and clearance budget before running it. `apply-calibration` checks the independent points and writes the accepted profile only when they pass:
 
@@ -369,7 +433,7 @@ Use these CLI result paths in the validation and application step if you chose t
 
 ## Record wrist geometry and preserve evidence
 
-For each side, record `pregrasp.<side>.wrist_to_tcp_pose7` as `[x,y,z,qw,qx,qy,qz]`: the TCP frame expressed in the configured wrist body frame, with translation in metres and a unit quaternion. Obtain it from the installed mount geometry and independent measurements. TCP `+Z` is the inward approach axis; TCP `+Y` is the roll/up reference used by target selection. An identity transform is valid only when these physical frames coincide.
+For each side, record `pregrasp.<side>.wrist_to_tcp_pose7` as `[x,y,z,qw,qx,qy,qz]`: the TCP frame expressed in the configured wrist body frame, with translation in metres and a unit quaternion. The fixed-point fit above can supply translation; orientation still requires an independent determination from installed mount geometry. TCP `+Z` is the inward approach axis; TCP `+Y` is the roll/up reference used by target selection. An identity transform is valid only when these physical frames coincide.
 
 Measure `scene.table_z_m` in `base_Link`; choose `scene.object_radius_m` to enclose the entire registered object mesh about its pose origin. Retain the session directories, raw images, sample files, both solves when available, held-out measurements, mount measurements, and accepted model revision. For an unexpected fit or failed point check, use `.venv/bin/tron2-deploy calibration-report --help` to see the optional diagnostic report inputs; retain generated reports with their inputs. The helper and reports do not apply calibration or enable execution. A passed extrinsic fit does not verify collision geometry, wrist mounting, transport timing, or stop behavior.
 

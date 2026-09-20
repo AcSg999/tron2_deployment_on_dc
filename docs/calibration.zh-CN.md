@@ -251,14 +251,32 @@ CLI 采集使用相同参数，例如 `record-sample --side left --target aruco 
   --output calibration_data/heldout/frame
 ```
 
-该命令写出 `color.png`（已去畸变）、`depth.png`（16 位，单位 mm，已对齐到彩色）和 `frame.json`。在 `color.png` 上读出每个点的像素，填入下面的列表并反投影：
+该命令会创建 `color.png`（已去畸变）、`depth.png`（16 位，单位 mm，已对齐到彩色）和 `frame.json`。
+在有图形桌面的终端运行下面的命令，按顺序左键点击 `color.png` 中的保留点，按 Enter（或鼠标中键）结束；终端会打印可直接复制的 `pixels` 列表。需要放大时可先用图窗工具栏缩放，点选前退出缩放模式。
+
+```bash
+.venv/bin/python - <<'PY'
+import matplotlib.pyplot as plt
+
+image = plt.imread('calibration_data/heldout/frame/color.png')
+fig, ax = plt.subplots()
+ax.imshow(image, interpolation='nearest')
+ax.set_title('Left-click points in order; Enter or middle-click to finish')
+chosen = plt.ginput(n=-1, timeout=0)
+plt.close(fig)
+pixels = [(round(x), round(y)) for x, y in chosen]
+print(f'pixels = {pixels}')
+PY
+```
+
+将打印的 `pixels` 列表填入下面的脚本并反投影；坐标顺序为 `(u, v)`，图像左上角是 `(0, 0)`：
 
 ```bash
 .venv/bin/python - <<'PY'
 import json
 import cv2
 import numpy as np
-pixels = [(320, 240), (180, 300), (470, 210)]   # 换成你读到的像素
+pixels = [(167, 318), (345, 289), (420, 227)]   # 换成你读到的像素
 frame = json.load(open('calibration_data/heldout/frame/frame.json'))
 k = np.array(frame['intrinsics'], dtype=float)
 depth = cv2.imread('calibration_data/heldout/frame/depth.png', cv2.IMREAD_UNCHANGED)
@@ -276,7 +294,27 @@ PY
 
 ### 基座坐标
 
-对同样的点，通过机器人自身经过审核的控制界面移动机械臂，让与所配置 TCP 坐标系重合的尖点顶到该点，然后读取关节：
+先标定临时或正式安装的尖点位置。选一个不动且可重复接触的固定点，用机器人自身经过审核的控制界面，保持同一侧机械臂的**同一个尖端**每次顶到该点；换至少四种明显不同的腕部倾斜姿态，每次稳定后分别读取关节。下面命令只读取状态，拟合脚本只做离线正运动学和计算，不发送运动指令。不要让尖端在不同位置接触一个有面积的标记；应使用可重复定位的点或孔。
+
+```bash
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-01.json
+# 通过机器人控制界面改变腕部倾斜，仍让同一尖端顶住同一固定点
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-02.json
+# 再改变腕部倾斜并重复接触
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-03.json
+# 第四种不同的倾斜姿态
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/tcp-pivot/pose-04.json
+
+.venv/bin/python scripts/solve_tcp_pivot.py \
+  --profile configs/local-robot-intrinsics.json --side left \
+  --states calibration_data/tcp-pivot/pose-{01,02,03,04}.json \
+  > calibration_data/tcp-pivot/result.json
+cat calibration_data/tcp-pivot/result.json
+```
+
+结果中的 `tip_in_wrist_m` 是可填入 `wrist_to_tcp_pose7` 的前三个数，`touch_residuals_mm` 和 `max_residual_mm` 显示各次接触的一致性；默认最大允许残差为 5 mm，可按测量精度设置 `--max-residual-mm`。姿态变化不足或残差超限时脚本报错，需重新采样。拟合残差仅检查这几次接触自身，不是独立验收。脚本严格检查所选机械臂的关节限位；若仅另一侧关节读数越过配置限位，会在离线正运动学计算中将其截到限位并在 `ignored_other_arm_limit_violations` 列出，所选腕部的计算不受影响。该记录仍提示需要另行核对机器人读数与限位配置。这个固定点方法**不能求出 TCP 的朝向**：无论 TCP 坐标轴怎样旋转，尖点仍在同一个位置。按照实际工具安装几何独立确定 TCP `+Z` 接近轴和 `+Y` 向上参考，再将腕部坐标系中的单位四元数以 `--tcp-quat-wxyz QW QX QY QZ` 传入同一命令；此时结果才会给出完整的 `wrist_to_tcp_pose7`。只有实测确认 TCP 轴与腕部轴重合，才能传入 `1 0 0 0`。脚本不会修改配置文件；核对结果后手动填入当前配置的 `pregrasp.left.wrist_to_tcp_pose7`（右臂改用 `--side right` 并独立采样）。
+
+随后对用于相机外参独立验证的**多个不同点**，让已标定的 TCP 原点尖端分别顶到各点并读取关节：
 
 ```bash
 .venv/bin/tron2-deploy state \
@@ -302,7 +340,7 @@ print(touched[:3, 3].tolist())
 PY
 ```
 
-每个点重复 `state` 与换算，`side` 保持一致。如果实际末端没有与所配置 TCP 原点重合的尖点，先临时装一个，或先修正 `pregrasp.<side>.wrist_to_tcp_pose7`；否则你顶到的点并不是你测的那个点。
+每个点重复 `state` 与换算，`side` 保持一致。确认顶点的仍是标定时使用的同一个尖端，且工具安装没有移动；否则应重新标定尖点位置。
 
 这些点要分散：至少三个、不共线，并在深度、高度和水平位置上都有变化，因为该检查取最坏值而不是平均值。阈值按深度传感器的实际精度和部署间隙预算确定；下文示例中的 `0.005` 是 5 mm，可能比 RGB-D 在整个工作空间内能支持的还要紧。
 
@@ -319,6 +357,33 @@ np.savez('calibration_data/heldout_points.npz',
          points_base=np.asarray(points['points_base'], dtype=float))
 PY
 ```
+
+### 可选：用棋盘格生成不依赖深度的验证点
+
+可复用标定内参时的**实体棋盘格**，但必须在外参求解结束后拍新的验证图像；不要用参与手眼求解的图像或用待验证外参反算基座点。脚本读取内参 JSON 中的内角点数量和实测方格边长，检测彩色图像中的角点，用 PnP 求棋盘格相对相机的位姿，再用保存的关节状态与已标定的 TCP 求对应角点在 `base_Link` 中的位置。它不读取深度图，不连接机器人，也不发送运动命令。
+
+将棋盘格固定在机械臂能触及的位置。每次使用 `capture --raw` 拍原始彩色图像；拍完后保持棋盘、相机头部和尖端安装不动，让尖端分别接触指定**内角点**，每次稳定后将状态保存到不同文件。只能通过机器人已有的受审核控制界面移动机械臂。若接触使棋盘移动，重新拍摄；若要换棋盘位置，先固定在新位置，再拍新图像。以下示例使用 `7x9` 个内角点，行、列都从零开始；图像中角点的检测顺序需人工核对，尤其要确认第一角点。`view-01` 对应前两次接触；移动棋盘并固定后拍 `view-02`，再记录第三次接触。
+
+```bash
+.venv/bin/tron2-deploy capture --raw --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/view-01
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/state-01.json
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/state-02.json
+# 将棋盘固定在第二个位置，然后重新拍摄
+.venv/bin/tron2-deploy capture --raw --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/view-02
+.venv/bin/tron2-deploy state --profile configs/local-robot-intrinsics.json --output calibration_data/heldout-board/state-03.json
+
+.venv/bin/python scripts/validate_chessboard_extrinsics.py \
+  --profile configs/local-robot-intrinsics.json \
+  --intrinsics calibration_data/intrinsics-guided/intrinsics.json \
+  --handeye calibration_data/handeye-right-guided/handeye-right.json \
+  --side left --max-error-m 0.005 --max-reprojection-px 2.0 \
+  --touch calibration_data/heldout-board/view-01 0 0 calibration_data/heldout-board/state-01.json \
+  --touch calibration_data/heldout-board/view-01 8 6 calibration_data/heldout-board/state-02.json \
+  --touch calibration_data/heldout-board/view-02 2 4 calibration_data/heldout-board/state-03.json \
+  --output calibration_data/heldout-board/points.npz
+```
+
+每个 `--touch` 依次指定采集目录、内角点行号、列号、该角点的关节状态文件；重复行数可超过三。先打开 `points-marked/view-*.png` 核对红圈与实际接触的角点一致。脚本打印每点三维误差、最大误差与每张图像的 PnP 重投影误差，并保存 `points.npz` 和 `points.report.json`。`--max-reprojection-px 2.0` 是示例质量门限，应按实际角点质量确定；超限时检查图像与内参。三维验证失败时退出码为 1，但仍保存诊断数据；只有检查通过后，才将 `points.npz` 传给下方 `apply-calibration` 的 `--validation-points`。相同图像上的多个角点共享一次 PnP 位姿；应在工作空间不同位置和倾角重复采集。PnP 仍依赖内参和棋盘尺寸，接触仍依赖 TCP 精度与棋盘固定程度；低重投影误差本身不能证明毫米级三维精度。最大误差阈值应按测量精度和部署间隙预算确定。
 
 以下示例允许最大点误差为 5 mm。运行前，应依据部署的测量与间隙预算确定实际阈值。`apply-calibration` 会检查独立测量点，只有通过后才写入已验收配置：
 
@@ -369,7 +434,7 @@ PY
 
 ## 记录腕部几何并保留证据
 
-分别记录 `pregrasp.<side>.wrist_to_tcp_pose7`，格式为 `[x,y,z,qw,qx,qy,qz]`：表示 TCP 坐标系在配置的腕部刚体坐标系中的位姿，平移单位为米，四元数必须归一化。该变换应来自实际安装几何和独立测量。TCP `+Z` 是朝向物体的接近轴，TCP `+Y` 是目标选择时使用的滚转/向上参考。只有两个实际坐标系重合时，单位变换才有效。
+分别记录 `pregrasp.<side>.wrist_to_tcp_pose7`，格式为 `[x,y,z,qw,qx,qy,qz]`：表示 TCP 坐标系在配置的腕部刚体坐标系中的位姿，平移单位为米，四元数必须归一化。平移可由上述固定点拟合，朝向仍需从实际安装几何独立确定。TCP `+Z` 是朝向物体的接近轴，TCP `+Y` 是目标选择时使用的滚转/向上参考。只有两个实际坐标系重合时，单位变换才有效。
 
 在 `base_Link` 中测量 `scene.table_z_m`；设置 `scene.object_radius_m`，使其以物体位姿原点为中心包住整个已注册物体网格。保留会话目录、原始图像、样本文件、可用时的左右两次求解、保留点测量、安装测量和已接受的模型版本。拟合结果异常或验证点检查失败时，可运行 `.venv/bin/tron2-deploy calibration-report --help` 查看可选诊断报告的输入参数，并将生成的报告与输入数据一起保存。辅助页和报告不会应用标定或启用执行。外参拟合通过不代表碰撞几何、腕部安装、传输时序或停止行为已经验证。
 
