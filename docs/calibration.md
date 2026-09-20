@@ -94,6 +94,89 @@ After solving, stop the helper with Ctrl-C and apply the saved intrinsic result:
 
 Applying the fit updates `K`, distortion, and image dimensions. It invalidates prior extrinsic acceptance and leaves real execution disabled. Depth intrinsics and depth-to-color alignment remain separate measured inputs; this chessboard fit does not calibrate them.
 
+## Set arm payloads and prepare drag teaching
+
+Drag teaching is needed to vary wrist poses before extrinsic collection. First identify the payload of each installed end effector in the robot management page, then write those identification results to the controller. The TRON2 interface takes `[m, mc_x, mc_y, mc_z]`: `m` is in kg and the remaining values are first mass moments in kg·m. **Do not** divide them by mass and write them as centre-of-mass coordinates. Replacing an end effector or changing its mounting invalidates these parameters and requires a new identification.
+
+The measured values for the current robot, `DACH_TRON2A_091`, are:
+
+| Arm | `m` (kg) | `mc_x` (kg·m) | `mc_y` (kg·m) | `mc_z` (kg·m) |
+| --- | ---: | ---: | ---: | ---: |
+| Left (`arm=0`) | 1.199574 | -0.011601 | 0.008230 | -0.158851 |
+| Right (`arm=1`) | 1.103249 | -0.005505 | -0.003338 | -0.176561 |
+
+Exit drag-teach mode and safely support both arms. Confirm that an operator is present, the emergency stop is ready, and the robot address and device ID exactly match the script below. Stop any other client occupying the control port, then run this from the repository root. The script only sets and reads back payloads; it does not enter drag teaching or send arm, chassis, or gripper motion commands:
+
+```bash
+env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+  NO_PROXY=10.192.1.2 no_proxy=10.192.1.2 \
+  .venv/bin/python - <<'PY'
+import json
+import time
+import uuid
+
+import websocket
+
+url = "ws://10.192.1.2:5000"
+expected_accid = "DACH_TRON2A_091"
+target = [
+    [1.199574, -0.011601, 0.008230, -0.158851],
+    [1.103249, -0.005505, -0.003338, -0.176561],
+]
+
+ws = websocket.create_connection(url, timeout=10)
+
+
+def receive(title, guid=None):
+    while True:
+        message = json.loads(ws.recv())
+        if message.get("title") == title and (
+            guid is None or message.get("guid") == guid
+        ):
+            return message
+
+
+robot_info = receive("notify_robot_info")
+accid = robot_info.get("accid")
+if accid != expected_accid:
+    raise SystemExit(f"wrong robot: expected {expected_accid}, received {accid}")
+
+
+def request(title, data):
+    guid = str(uuid.uuid4())
+    ws.send(json.dumps({
+        "accid": accid,
+        "title": title,
+        "timestamp": int(time.time() * 1000),
+        "guid": guid,
+        "data": data,
+    }))
+    return guid
+
+
+for arm, values in enumerate(target):
+    guid = request("request_set_payload_param", {"arm": arm, "data": values})
+    result = receive("response_set_payload_param", guid).get("data", {})
+    if result.get("result") != "success" or result.get("arm") != arm:
+        raise SystemExit(f"arm {arm} write failed: {result}")
+
+guid = request("request_get_payload_param", {})
+result = receive("response_get_payload_param", guid).get("data", {})
+actual = result.get("data")
+expected = target[0] + target[1]
+if result.get("result") != "success" or not isinstance(actual, list):
+    raise SystemExit(f"readback failed: {result}")
+if len(actual) != 8 or any(
+    abs(float(got) - want) > 1e-6 for got, want in zip(actual, expected)
+):
+    raise SystemExit(f"readback mismatch: expected {expected}, received {actual}")
+print(json.dumps({"accid": accid, "payload": actual, "verified": True}, indent=2))
+ws.close()
+PY
+```
+
+Enter drag teaching only after both arm writes return `success` and the final output contains `"verified": true`. If the robot responds to `ping` but the WebSocket handshake times out, check the host proxy settings; the command above explicitly bypasses proxies for `10.192.1.2`. If readback returns `fail_payload_get` or the values differ, do not enable drag teaching. Keep both arms supported while checking controller mode, end-effector mounting, and identification results.
+
 ## Collect stationary hand-eye samples with visual guidance
 
 For the fixed top camera, the supported solve is **eye-to-hand**: the camera and head stay fixed while a board rigidly attached to the selected wrist moves with that wrist. The result maps camera coordinates into `base_Link`. Restart the helper with the updated intrinsic profile and an explicit side:

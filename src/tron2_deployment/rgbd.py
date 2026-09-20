@@ -266,6 +266,8 @@ class Tron2HighRgbdCapture:
         if config is None:
             raise ValueError("explicit camera calibration is required")
         self.config = config
+        self._capture_stop: asyncio.Event | None = None
+        self._active_sockets: set = set()
 
     def close(self) -> None:
         """Bridge capture owns no persistent connection between calls."""
@@ -285,33 +287,46 @@ class Tron2HighRgbdCapture:
                 url, ssl=_bridge_ssl_context(url, self.config),
                 additional_headers=_bridge_headers(self.config),
                 open_timeout=self.config.timeout_s, close_timeout=0.25) as socket:
-            while keep_streaming or len(frames) < self.config.sample_count:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    message = await asyncio.wait_for(
-                        socket.recv(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    break
-                except websockets.exceptions.ConnectionClosed as error:
-                    if (topic == HIGH_DEPTH_TOPIC
-                            and getattr(error, "reason", "") ==
-                            "unknown_image_msg_type"):
-                        raise RuntimeError(
-                            "TRON2 cam_high depth is not published in the "
-                            "current robot mode. Restore topic "
-                            f"{HIGH_DEPTH_TOPIC}; depth from another camera "
-                            "cannot be paired with cam_high RGB.") from error
-                    raise
-                if isinstance(message, bytes):
-                    frame = _decode_brdg(message)
-                    if frame is not None:
-                        frames.append(frame)
-                        if keep_streaming and len(frames) > self.config.sample_count:
-                            del frames[:-self.config.sample_count]
-                        if updated is not None:
-                            updated.set()
+            self._active_sockets.add(socket)
+            try:
+                while keep_streaming or len(frames) < self.config.sample_count:
+                    if self._capture_stop is not None and self._capture_stop.is_set():
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    try:
+                        message = await asyncio.wait_for(
+                            socket.recv(), timeout=min(remaining, 0.2) if keep_streaming else remaining)
+                    except asyncio.TimeoutError:
+                        if keep_streaming:
+                            continue
+                        break
+                    except websockets.exceptions.ConnectionClosed as error:
+                        if (topic == HIGH_DEPTH_TOPIC
+                                and getattr(error, "reason", "") ==
+                                "unknown_image_msg_type"):
+                            raise RuntimeError(
+                                "TRON2 cam_high depth is not published in the "
+                                "current robot mode. Restore topic "
+                                f"{HIGH_DEPTH_TOPIC}; depth from another camera "
+                                "cannot be paired with cam_high RGB.") from error
+                        raise
+                    if isinstance(message, bytes):
+                        frame = _decode_brdg(message)
+                        if frame is not None:
+                            frames.append(frame)
+                            if keep_streaming and len(frames) > self.config.sample_count:
+                                del frames[:-self.config.sample_count]
+                            if updated is not None:
+                                updated.set()
+            finally:
+                self._active_sockets.discard(socket)
+                # One-shot rolling subscriptions are cancelled after selection.
+                # Abort the transport before __aexit__ so a busy raw-depth
+                # stream cannot delay the selected frame until it is stale.
+                if keep_streaming:
+                    socket.transport.abort()
         if not frames:
             raise TimeoutError(f"TRON2 bridge produced no frames for {topic}")
         return frames
@@ -333,27 +348,37 @@ class Tron2HighRgbdCapture:
                 url, ssl=_bridge_ssl_context(url, self.config),
                 additional_headers=_bridge_headers(self.config),
                 open_timeout=self.config.timeout_s, close_timeout=0.25) as socket:
-            while keep_streaming or len(frames) < self.config.sample_count:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    message = await asyncio.wait_for(
-                        socket.recv(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    break
-                if not isinstance(message, str):
-                    continue
-                frame = _decode_joint_message(message)
-                if frame is not None:
-                    frames.append(frame)
-                    history_size = max(
-                        self.config.sample_count,
-                        self.config.ros_joint_history_size)
-                    if keep_streaming and len(frames) > history_size:
-                        del frames[:-history_size]
-                    if updated is not None:
-                        updated.set()
+            self._active_sockets.add(socket)
+            try:
+                while keep_streaming or len(frames) < self.config.sample_count:
+                    if self._capture_stop is not None and self._capture_stop.is_set():
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    try:
+                        message = await asyncio.wait_for(
+                            socket.recv(), timeout=min(remaining, 0.2) if keep_streaming else remaining)
+                    except asyncio.TimeoutError:
+                        if keep_streaming:
+                            continue
+                        break
+                    if not isinstance(message, str):
+                        continue
+                    frame = _decode_joint_message(message)
+                    if frame is not None:
+                        frames.append(frame)
+                        history_size = max(
+                            self.config.sample_count,
+                            self.config.ros_joint_history_size)
+                        if keep_streaming and len(frames) > history_size:
+                            del frames[:-history_size]
+                        if updated is not None:
+                            updated.set()
+            finally:
+                self._active_sockets.discard(socket)
+                if keep_streaming:
+                    socket.transport.abort()
         if not frames:
             raise TimeoutError(
                 f"TRON2 bridge produced no joint frames for "
@@ -368,6 +393,7 @@ class Tron2HighRgbdCapture:
         # sockets alive until their rolling windows contain one synchronized
         # observation instead of letting the faster stream finish first.
         updated = asyncio.Event()
+        self._capture_stop = asyncio.Event()
         color_frames: list[_BridgeFrame] = []
         depth_frames: list[_BridgeFrame] = []
         joint_frames: list[_JointFrame] = []
@@ -431,9 +457,13 @@ class Tron2HighRgbdCapture:
                 except asyncio.TimeoutError:
                     continue
         finally:
+            self._capture_stop.set()
+            for socket in tuple(self._active_sockets):
+                socket.transport.abort()
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            self._capture_stop = None
 
     def capture(self, *, include_joint_state: bool = True
                 ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:

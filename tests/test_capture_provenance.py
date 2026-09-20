@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from pathlib import Path
+import time
 
 import numpy as np
 import pytest
@@ -151,6 +152,39 @@ def test_handeye_sample_selects_requested_arm_with_valid_timing(monkeypatch, tmp
     used = _sample_fixture(monkeypatch)
     path = calibration.record_sample(real_camera_profile(), "right", tmp_path)
     assert path.exists() and used == ["right"]
+
+
+def test_handeye_brackets_frame_during_slow_bridge_startup(monkeypatch, tmp_path):
+    from tron2_deployment import robot
+
+    _sample_fixture(monkeypatch)
+    started = time.monotonic()
+    clock = lambda: 100.0 + 10.0 * (time.monotonic() - started)
+    monkeypatch.setattr(calibration.time, "time", clock)
+
+    class Adapter:
+        def __init__(self, profile):
+            pass
+
+        def read_state(self):
+            return {"arm_q14": [0.0]*14, "head_q2": [0.0, 0.0],
+                    "timestamp_s": clock(), "source": "real"}
+
+        def close(self):
+            pass
+
+    def slow_capture(*args, **kwargs):
+        time.sleep(0.2)  # Two virtual seconds before the RGB-D frame arrives.
+        captured = clock()
+        time.sleep(0.2)  # Bridge decoding can also finish after frame receipt.
+        return {"source": "real", "capture_timestamp_s": captured,
+                "head_q2": [0, 0], "sensor_sync": {}, "camera_id": "test",
+                "image": "ignored"}
+
+    monkeypatch.setattr(robot, "WebsocketRobot", Adapter)
+    monkeypatch.setattr(calibration, "capture", slow_capture)
+    path = calibration.record_sample(real_camera_profile(), "right", tmp_path)
+    assert path.exists()
 
 
 @pytest.mark.parametrize("settings,error", [

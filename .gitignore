@@ -10,3 +10,4 @@ calibration_data/
 configs/local*.json
 .env
 .vendor/
+meshes/

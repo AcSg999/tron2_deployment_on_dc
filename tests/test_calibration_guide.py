@@ -212,6 +212,7 @@ def test_handeye_rotation_readiness_matches_solver_gate(profile, tmp_path, monke
 def test_real_handeye_uses_existing_stationary_capture_gates(profile, tmp_path, monkeypatch, failure):
     guide = CalibrationGuide(profile, tmp_path / "session", stage="handeye", side="left")
     calls = []
+    moved = {"value": False}
     class Adapter:
         def __init__(self, p):
             self.count = 0
@@ -219,7 +220,7 @@ def test_real_handeye_uses_existing_stationary_capture_gates(profile, tmp_path, 
             self.count += 1
             calls.append("read")
             return {"timestamp_s": time.time() - (10 if failure == "stale" else 0),
-                    "arm_q14": [(.1 if failure == "moving" and self.count == 2 else 0)] * 14,
+                    "arm_q14": [(.1 if moved["value"] else 0)] * 14,
                     "head_q2": profile["calibration"]["head_q2"]}
         def close(self):
             calls.append("close")
@@ -235,6 +236,11 @@ def test_real_handeye_uses_existing_stationary_capture_gates(profile, tmp_path, 
         calls.append("capture")
         frame, _ = guide._mock_observation(0)
         frame["source"] = "real"
+        if failure == "moving":
+            time.sleep(0.05)
+            frame["capture_timestamp_s"] = time.time()
+            moved["value"] = True
+            time.sleep(0.05)
         if failure == "board":
             frame["image"] = camera.encode_image(np.full((480, 640, 3), 200, np.uint8))
         return frame
@@ -242,7 +248,8 @@ def test_real_handeye_uses_existing_stationary_capture_gates(profile, tmp_path, 
     monkeypatch.setattr(kinematics, "RobotModel", Model)
     monkeypatch.setattr(calibration, "capture", capture)
     state = guide.save()
-    assert calls == ["read", "capture", "read", "close"]
+    assert calls[0] == "read" and calls[-1] == "close"
+    assert calls.count("capture") == 1 and calls.count("read") >= 2
     assert state["saved_count"] == (0 if failure else 1)
     if failure in ("stale", "moving"):
         assert state["preview_image"] is None

@@ -1,4 +1,5 @@
 """Intrinsic/hand-eye calibration and stationary per-arm sample collection."""
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import time
 
@@ -84,29 +85,54 @@ def record_sample(profile, side, output, *, mock=False, pattern=(9, 6), square_m
         raise ValueError("side must be left or right")
     adapter = MockRobot(profile) if mock else WebsocketRobot(profile)
     try:
-        before = adapter.read_state()
-        before_received = time.time()
-        frame = capture(profile, mock=mock, undistort=False)
-        after = adapter.read_state()
+        observations = [(adapter.read_state(), time.time())]
+        if mock:
+            frame = capture(profile, mock=True, undistort=False)
+        else:
+            # Bridge subscriptions can take seconds to attach. Keep reading
+            # feedback while the camera starts, then bracket the *received*
+            # image time with states from that interval, not socket startup.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                frame_future = executor.submit(capture, profile, mock=False,
+                                               undistort=False)
+                while not frame_future.done():
+                    observations.append((adapter.read_state(), time.time()))
+                    time.sleep(0.02)
+                frame = frame_future.result()
+        observations.append((adapter.read_state(), time.time()))
     finally:
         adapter.close()
-    now = time.time()
     max_age = float(profile.get("execution", {}).get("start_max_age_s", 0.25))
     calibration = profile["calibration"]
     max_span = float(calibration.get("max_sample_span_s", 1.0))
     max_skew = float(calibration.get("max_sample_skew_s", 0.25))
     if not np.isfinite([max_age, max_span, max_skew]).all() or min(max_age, max_span, max_skew) <= 0:
         raise ValueError("calibration sample timing tolerances must be positive and finite")
+    captured = float(frame["capture_timestamp_s"])
+    before_candidates = [item for item in observations
+                         if np.isfinite(item[0]["timestamp_s"]) and item[0]["timestamp_s"] <= captured]
+    after_candidates = [item for item in observations
+                        if np.isfinite(item[0]["timestamp_s"]) and item[0]["timestamp_s"] >= captured]
+    before, before_received = (
+        max(before_candidates, key=lambda item: item[0]["timestamp_s"])
+        if before_candidates else observations[0])
+    after, after_received = (
+        min(after_candidates, key=lambda item: item[0]["timestamp_s"])
+        if after_candidates else observations[-1])
+    now = time.time()
     before_stamp, after_stamp = float(before["timestamp_s"]), float(after["timestamp_s"])
     if (not np.isfinite([before_stamp, after_stamp]).all() or min(before_stamp, after_stamp) <= 0
-            or before_received-before_stamp > max_age or now-after_stamp > max_age
-            or before_stamp-before_received > 0.05 or after_stamp-now > 0.05):
+            or before_received-before_stamp > max_age or after_received-after_stamp > max_age
+            or before_stamp-before_received > 0.05 or after_stamp-after_received > 0.05):
         raise ValueError("stale robot feedback during calibration capture")
-    captured = float(frame["capture_timestamp_s"])
-    if (not np.isfinite(captured) or after_stamp < before_stamp or now-before_received > max_span
+    if (not np.isfinite(captured) or after_stamp < before_stamp or after_stamp-before_stamp > max_span
             or captured < before_stamp-0.05 or captured > after_stamp+0.05
             or max(abs(captured-before_stamp), abs(after_stamp-captured)) > max_skew):
-        raise ValueError("calibration image is not closely bracketed by fresh arm feedback")
+        raise ValueError("calibration image is not closely bracketed by fresh arm feedback "
+                         f"(before={captured-before_stamp:.3f}s, "
+                         f"after={after_stamp-captured:.3f}s, "
+                         f"span={after_stamp-before_stamp:.3f}s; "
+                         f"limits={max_skew:.3f}s/{max_span:.3f}s)")
     sync = frame.get("sensor_sync", {})
     if (sync.get("state_header_skew_exceeded") or sync.get("state_alignment") == "stable_head_receipt_fallback"
             or float(sync.get("state_skew_ms", 0)) > float(profile["camera"].get("max_state_skew_ms", 100))):
