@@ -79,7 +79,7 @@ Start the helper from the repository root in the configured camera environment. 
   --output calibration_data/intrinsics-guided
 ```
 
-Open the printed URL, normally `http://127.0.0.1:8790`. Click **Preview** to check board visibility and corner detection, then **Capture and save a new sample** for a fresh accepted view. Move the board across the image and vary its distance and tilt; keep the camera resolution and head pose fixed. The helper saves original, unrectified images under `view-*/color.png`. Capturing reads the camera again; it does not save a possibly old preview.
+Open the printed URL, normally `http://127.0.0.1:8790`. Click **Preview (do not save)** to check board visibility and corner detection, then **Capture and save a new sample** for a fresh accepted view. Move the board across the image and vary its distance and tilt; keep the camera resolution and head pose fixed. The helper saves original, unrectified images under `view-*/color.png`. Capturing reads the camera again; it does not save a possibly old preview.
 
 Collect at least five accepted views, then click **Solve**. Check the displayed RMS, result path and next instruction. The minimum sample count and a small fit error alone do not establish accuracy; avoid repeated views clustered at the image center. If the board is not detected, show the whole board, reduce blur or glare, and check the inner-corner count. If a view is too similar, change the board position or tilt before capturing again.
 
@@ -190,7 +190,7 @@ For the fixed top camera, the supported solve is **eye-to-hand**: the camera and
 
 Open the printed URL, normally `http://127.0.0.1:8790`. Use this collection loop:
 
-1. Click **Preview** and check that the whole board and its detected corners are visible.
+1. Click **Preview (do not save)** and check that the whole board and its detected corners are visible.
 2. Reposition the wrist through the robot's separately reviewed controls. Vary rotation axes and position while keeping the board visible and the head fixed.
 3. Wait for the arm and board to settle, then click **Capture and save a new sample**. Check the saved count and displayed wrist rotation change before repeating.
 
