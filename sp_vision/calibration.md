@@ -2,14 +2,28 @@
 
 [简体中文](calibration.zh-CN.md)
 
+Controller payload identification (`m`, `mc_x`, `mc_y`, `mc_z`) is not used by this image, joint-angle, and FK calibration. It does not belong in this experiment's JSON or the URDF camera transform. If drag teaching is used to position the robot, configure the current payload separately in the robot controller and confirm its readback before that operation.
+
+## One-frame ROS 2 camera check
+
+The deployed color camera topics run under ROS 2 Foxy on `guest@10.192.1.4`. The local ROS 1 Noetic `rostopic` command cannot discover them. To capture the right wrist color image from `/camera/right/color/image_resized/compressed`, run from the repository root:
+
+```bash
+.venv/bin/python sp_vision/capture_ros2_image.py
+```
+
+The script subscribes to `sensor_msgs/msg/CompressedImage` with the sensor-data QoS profile over SSH and saves `sp_vision/data/right-camera-latest.jpg`. Use `--camera top` for the corresponding head color topic, `/camera/top/color/image_raw/compressed`. Both paths only read images; the snapshot does not include depth or joint state and is not a calibrated observation.
+
 This directory implements one minimal workflow:
 
-1. capture about 30 fixed-checkerboard images while moving head yaw and pitch;
+1. capture about 40 fixed-checkerboard images while moving head yaw and pitch;
 2. solve color-camera intrinsics;
 3. solve `T_pitch_camera`, from the color optical frame to `head_pitch_Link`;
 4. validate three checkerboard corners by touching them with a calibrated arm tip.
 
 The program does not command the head, arms, hands, or grippers. Perform motion manually through the robot's existing reviewed interface. Inputs and outputs use JSON, not YAML.
+
+The installed head camera is an **Intel RealSense D435**, and this workflow calibrates its color optical frame. The `d435i_visual_m.obj` filename in the assembled model is a visualization-asset name; it does not change the physical camera identification or the calibrated frame.
 
 ## Final model and frame convention
 
@@ -49,7 +63,7 @@ cp sp_vision/config.example.json sp_vision/local-calibration.json
 
 The example config already references `configs/assembly.urdf`, `configs/scene.xml`, and the existing local camera profile. Relative paths are resolved from the config JSON.
 
-## 1. Capture 30 views
+## 1. Capture 40 views
 
 Rigidly fix the board where the camera and arm can both reach it. Do not move it during this dataset.
 
@@ -57,8 +71,10 @@ Rigidly fix the board where the camera and arm can both reach it. Do not move it
 .venv/bin/python sp_vision/calibration.py \
   --config sp_vision/local-calibration.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/head-camera-session --count 30
+  --session sp_vision/data/head-camera-session --count 40
 ```
+
+By default, `--count` is the number of views in a fresh capture. After all views are saved, the new `view-*` directories replace the previous ones in this session and numbering restarts at `view-001`. Quitting early leaves the previous set intact. To deliberately continue an existing dataset, pass `--append --count N`; for example, add ten views to a 30-view session with `--append --count 10`. Re-run intrinsics and extrinsics after either kind of capture because existing JSON results still describe the previous images.
 
 Keys are:
 
@@ -69,7 +85,7 @@ Keys are:
 
 Detection uses `findChessboardCornersSB` with `NORMALIZE_IMAGE`, `EXHAUSTIVE`, and `ACCURACY`. It must find all 70 subpixel corners and pass topology, coverage, border, and synchronization checks. Colored row overlays are saved as `corners.png` for review.
 
-Move through combinations spanning positive and negative yaw and pitch, and wait for the head to stop before each save. The final six frames are held out; the preceding roughly 24 frames are fitted.
+Move through combinations spanning positive and negative yaw and pitch, and wait for the head to stop before each save. Cover distinct board positions, tilts, and apparent sizes; extra nearly identical frames do little to improve the fit. With 40 accepted views, the final six diverse frames are held out and the preceding 34 are fitted, subject to quality rejection.
 
 ## 2. Solve intrinsics
 
@@ -173,7 +189,7 @@ Inspect `selection.png`. Keep the board fixed, touch labeled points 1, 2, and 3 
 .venv/bin/python sp_vision/calibration.py \
   --config sp_vision/local-calibration.json validate \
   --selection sp_vision/data/touch-validation/selection.json \
-  --side left --tcp sp_vision/data/tcp/result.json \
+  --side right --tcp sp_vision/data/tcp/result.json \
   --states sp_vision/data/touch-validation/state-{01,02,03}.json \
   --output sp_vision/data/touch-validation/report.json
 ```

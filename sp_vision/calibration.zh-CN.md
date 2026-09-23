@@ -2,6 +2,18 @@
 
 [English](calibration.md)
 
+控制器负载辨识值（`m`、`mc_x`、`mc_y`、`mc_z`）不参与本实验的图像、关节角和 FK 标定，不应填入本实验 JSON 或 URDF 相机变换。若使用拖动示教调整机器人姿态，应在该操作前单独为控制器设置当前负载并回读确认。
+
+## ROS 2 相机单帧检查
+
+实机彩色相机话题运行在 `guest@10.192.1.4` 的 ROS 2 Foxy 中，本机 ROS 1 Noetic 的 `rostopic` 无法发现这些话题。从仓库根目录运行以下命令，读取 `/camera/right/color/image_resized/compressed` 的右手腕彩色图像：
+
+```bash
+.venv/bin/python sp_vision/capture_ros2_image.py
+```
+
+脚本通过 SSH 使用传感器数据 QoS 订阅 `sensor_msgs/msg/CompressedImage`，保存到 `sp_vision/data/right-camera-latest.jpg`。加 `--camera top` 可读取对应的头部彩色话题 `/camera/top/color/image_raw/compressed`。两种方式都只读取图像；单帧快照不包含深度或关节状态，也不是经过标定的观测结果。
+
 本目录是一个独立的最小实验，只标定：
 
 1. 头部彩色相机内参；
@@ -9,6 +21,8 @@
 3. 使用棋盘格内角点和机械臂触点进行独立验证。
 
 采集时固定棋盘格并移动头部的 yaw、pitch。程序不控制头部、机械臂、灵巧手或夹爪；所有运动都通过机器人已有且经过审核的界面人工完成。代码和生成配置均使用 JSON，不使用 YAML。
+
+实机头部相机为 **Intel RealSense D435**，本流程标定它的彩色光学坐标系。总装模型中的文件名 `d435i_visual_m.obj` 只是可视化资产名称，不改变实物相机型号或被标定的坐标系。
 
 ## 最终模型与坐标约定
 
@@ -44,7 +58,7 @@ yaw→pitch 的固定偏移是 `[0.051, 0.03, 0.097] m`。因此 yaw 旋转会�
 从仓库根目录准备实验配置：
 
 ```bash
-cp sp_vision/config.example.json sp_vision/local-calibration.json
+cp sp_vision/head_config.example.json sp_vision/local-calibration.json
 .venv/bin/python -m pip install -r sp_vision/requirements.txt
 ```
 
@@ -64,16 +78,18 @@ cp sp_vision/config.example.json sp_vision/local-calibration.json
 
 相对路径均相对于该配置 JSON 所在目录。现有项目 `.venv` 已经包含 NumPy、SciPy、OpenCV contrib，以及 bridge/ROS 采集适配器，通常不需要额外安装。
 
-## 一、采集约 30 个头姿
+## 一、采集约 40 个头姿
 
 把棋盘刚性固定在相机和机械臂都能看到、触及的位置。整个内参和外参数据集内不得移动棋盘。运行：
 
 ```bash
 .venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json capture \
+  --config sp_vision/local-head-calibration.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/head-camera-session --count 30
+  --session sp_vision/data/head-camera-session --count 40
 ```
+
+默认情况下，`--count` 是本轮重新采集的总张数。全部采完后，新图像将替换同一 `--session` 中原来的 `view-*` 目录，并从 `view-001` 重新编号；中途退出则保留原数据。如需有意续采，显式传入 `--append --count N`；例如已有 30 张时用 `--append --count 10` 追加到 40 张。两种采集方式结束后都需重新求解内参和外参，因为原有 JSON 结果仍对应之前的图像。
 
 程序直接复用现有 profile 的 bridge 或 ROS 相机配置，同时读取与图像对应的 `[pitch, yaw]`。它不会沿用旧固定头姿检查。同步状态回退、关节/图像时间差超限或未完整检测 70 个角点的帧不能保存。
 
@@ -95,7 +111,7 @@ sp_vision/data/head-camera-session/
   ...
 ```
 
-保持棋盘不动，通过已有控制界面改变头部。采样应同时覆盖 yaw 和 pitch 的正负方向、不同组合，并在每次保存前等待头部完全停止。避免只沿单轴运动、连续保存几乎相同的姿态，或让棋盘始终只占画面中央。默认把最后 6 帧留作外参保留集，其余约 24 帧参与求解。
+保持棋盘不动，通过已有控制界面改变头部。采样应同时覆盖 yaw 和 pitch 的正负方向、不同组合，并在每次保存前等待头部完全停止。尽量覆盖不同的棋盘画面位置、倾角和成像大小；新增大量近乎相同的画面帮助很小。采满 40 张且通过质量检查时，默认将最后 6 张不同姿态的图像留作验证，其余 34 张参与拟合；质量剔除可能减少实际拟合张数。
 
 检测器使用：
 
@@ -250,7 +266,7 @@ T_base_camera(q_yaw, q_pitch)
 .venv/bin/python sp_vision/calibration.py \
   --config sp_vision/local-calibration.json validate \
   --selection sp_vision/data/touch-validation/selection.json \
-  --side right sp_vision/data/tcp/result.json \
+  --side right --tcp sp_vision/data/tcp/result.json \
   --states sp_vision/data/touch-validation/state-{01,02,03}.json \
   --output sp_vision/data/touch-validation/report.json
 ```
@@ -273,6 +289,36 @@ p_base_touch
 ```
 
 最终比较的是两者在 `base_Link` 下的三维欧氏距离，不比较关节角。同一个空间点可能对应多组关节角，因此用关节角作为误差指标不成立。`report.json` 给出三点各自误差、平均误差和最大误差；默认最大允许误差为 10 mm，必须根据 TCP 重复性、棋盘固定误差和实际任务间隙预算重新确定。
+**report.json中有predicted的xyz和actual xyz，如果要补偿可以在这里取平均**
+
+## 换一个头姿复核之前的触点
+
+接受右臂 TCP 固定点标定结果、完成第一次棋盘触点选择并保存三份触碰状态后，保持棋盘在基座中的位置和朝向不变，尖端也保持同一刚性安装；头部相机可以移动。重新拍一张带同步头姿的彩色图，按原触碰顺序复用上次选中的三个实体角点，再用旧的机械臂状态计算触点基座坐标并比较距离。这是离线检查，不驱动机器人，也不需要重新触碰。
+
+```bash
+.venv/bin/python sp_vision/calibration.py \
+  --config sp_vision/local-calibration.json capture \
+  --pattern 7x10 --square-m 0.021 \
+  --session sp_vision/data/touch-recheck --count 1
+
+.venv/bin/python sp_vision/calibration.py \
+  --config sp_vision/local-calibration.json select-validation \
+  --pattern 7x10 --square-m 0.021 \
+  --frame sp_vision/data/touch-recheck/view-001 \
+  --intrinsics sp_vision/data/head-camera-session/intrinsics.json \
+  --extrinsics sp_vision/data/head-camera-session/extrinsics.json \
+  --reuse-selection sp_vision/data/touch-validation/selection.json \
+  --output sp_vision/data/touch-recheck/selection.json
+
+.venv/bin/python sp_vision/calibration.py \
+  --config sp_vision/local-calibration.json validate \
+  --selection sp_vision/data/touch-recheck/selection.json \
+  --side right --tcp sp_vision/data/tcp/result.json \
+  --states sp_vision/data/touch-validation/state-{01,02,03}.json \
+  --output sp_vision/data/touch-recheck/report.json
+```
+
+检查 `touch-recheck/selection.png`，确认标号对应上次实际触碰的三个实体角点。新图只求一次棋盘 PnP 位姿，旧状态给出三个基座系触点坐标。如果棋盘在第一次触碰后移动过，或尖端安装改变，比较就无效。报告记录各点三维距离（米）；超过配置门限时程序以退出码 1 结束。首次触点流程见[移动头部标定指南](sp_vision/calibration.zh-CN.md)。
 
 ## 离线测试
 

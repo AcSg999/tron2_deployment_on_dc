@@ -2,7 +2,7 @@
 
 [English](calibration.md) · [README](../README.zh-CN.md) · 下一步：[部署](deployment.zh-CN.md)
 
-首条流程使用顶部 RGB-D 相机，并将头部保持在经过测量的固定姿态。先标定彩色相机，求解其到 `base_Link` 的变换，再独立验证该变换，之后才能准备预抓取目标。记录左右腕部坐标系及各自的 TCP 安装变换。此流程不发送夹爪指令。
+首条流程使用头部安装的 **Intel RealSense D435** RGB-D 相机，并将头部保持在经过测量的固定姿态。先标定其彩色相机，求解其到 `base_Link` 的变换，再独立验证该变换，之后才能准备预抓取目标。记录左右腕部坐标系及各自的 TCP 安装变换。此流程不发送夹爪指令。
 
 通过 CLI 启动 `calibration-guide`，再按下文步骤，在浏览器页面中预览标定板、采集样本并求解。页面显示采集进度、简洁结果和下一步操作。配置更新与独立验证仍沿用现有 CLI 流程。
 
@@ -94,88 +94,13 @@ scene.object_radius_m >= max(norm(vertex_m - mesh_origin_m))
 
 应用拟合结果会更新 `K`、畸变和图像尺寸，使已有外参验收失效，并保持实机执行关闭。深度内参和深度到彩色的对齐变换仍需单独提供测量结果；此棋盘格内参拟合不会标定它们。
 
-## 设置双臂负载并准备拖动示教
+## 拖动示教所需的控制器负载参数
 
-采集外参前需要用拖动示教改变腕部姿态。先在机器人管理页完成当前末端执行器的负载辨识，再将辨识结果写入控制器。TRON2 接口使用 `[m, mc_x, mc_y, mc_z]`：`m` 的单位为 kg，后三项是质量一阶矩，单位为 kg·m，**不能**除以质量后当作质心坐标写入。更换末端执行器或改变安装后，原参数失效，必须重新辨识。
+负载辨识用于按当前安装的末端执行器配置机器人控制器的重力补偿。它**不是**本仓库相机内参、手眼外参、FK 或触点计算的输入。不要把 `[m, mc_x, mc_y, mc_z]` 填进 `sp_vision` 配置，也不要直接用它替换 URDF/MJCF 的惯性参数：三个 `mc` 是单位为 kg·m 的质量一阶矩，这四个数不足以描述完整的刚体惯量。
 
-当前机器人 `DACH_TRON2A_091` 的实测值为：
+本文档原先列出的负载数值和控制器写入脚本属于先前的安装状态，现已不适合作为当前写入命令，因此不再保留。辨识页面截图只能显示候选数值，不能单独证明机器人设备身份，也不能证明控制器已经接收并回读这些数值。
 
-| 机械臂 | `m` (kg) | `mc_x` (kg·m) | `mc_y` (kg·m) | `mc_z` (kg·m) |
-| --- | ---: | ---: | ---: | ---: |
-| 左臂（`arm=0`） | 1.199574 | -0.011601 | 0.008230 | -0.158851 |
-| 右臂（`arm=1`） | 1.103249 | -0.005505 | -0.003338 | -0.176561 |
-
-退出拖动示教并安全支撑双臂，确认现场有人监护、急停可用、机器人地址和设备 ID 与下方脚本完全一致。停止其他占用控制端口的客户端，然后从仓库根目录执行。该脚本只设置并回读负载，不会进入拖动示教，也不会发送关节、底盘或夹爪运动命令：
-
-```bash
-env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
-  NO_PROXY=10.192.1.2 no_proxy=10.192.1.2 \
-  .venv/bin/python - <<'PY'
-import json
-import time
-import uuid
-
-import websocket
-
-url = "ws://10.192.1.2:5000"
-expected_accid = "DACH_TRON2A_091"
-target = [
-    [1.199574, -0.011601, 0.008230, -0.158851],
-    [1.103249, -0.005505, -0.003338, -0.176561],
-]
-
-ws = websocket.create_connection(url, timeout=10)
-
-
-def receive(title, guid=None):
-    while True:
-        message = json.loads(ws.recv())
-        if message.get("title") == title and (
-            guid is None or message.get("guid") == guid
-        ):
-            return message
-
-
-robot_info = receive("notify_robot_info")
-accid = robot_info.get("accid")
-if accid != expected_accid:
-    raise SystemExit(f"wrong robot: expected {expected_accid}, received {accid}")
-
-
-def request(title, data):
-    guid = str(uuid.uuid4())
-    ws.send(json.dumps({
-        "accid": accid,
-        "title": title,
-        "timestamp": int(time.time() * 1000),
-        "guid": guid,
-        "data": data,
-    }))
-    return guid
-
-
-for arm, values in enumerate(target):
-    guid = request("request_set_payload_param", {"arm": arm, "data": values})
-    result = receive("response_set_payload_param", guid).get("data", {})
-    if result.get("result") != "success" or result.get("arm") != arm:
-        raise SystemExit(f"arm {arm} write failed: {result}")
-
-guid = request("request_get_payload_param", {})
-result = receive("response_get_payload_param", guid).get("data", {})
-actual = result.get("data")
-expected = target[0] + target[1]
-if result.get("result") != "success" or not isinstance(actual, list):
-    raise SystemExit(f"readback failed: {result}")
-if len(actual) != 8 or any(
-    abs(float(got) - want) > 1e-6 for got, want in zip(actual, expected)
-):
-    raise SystemExit(f"readback mismatch: expected {expected}, received {actual}")
-print(json.dumps({"accid": accid, "payload": actual, "verified": True}, indent=2))
-ws.close()
-PY
-```
-
-只有左右臂写入响应均为 `success`，且最终输出包含 `"verified": true`，才能进入拖动示教。若机器人能够 `ping` 通但 WebSocket 握手超时，先检查本机代理；上面的命令已经对 `10.192.1.2` 显式绕过代理。若回读返回 `fail_payload_get` 或数值不一致，不要启用拖动示教，应保持双臂支撑并排查控制器模式、末端安装和辨识结果。
+如果末端执行器或安装方式改变，并且接下来要使用拖动示教，应先在目标机器人上重新辨识、核对设备 ID，通过已有的机器人管理界面应用当前结果，并在进入拖动模式**之前**回读确认。辨识与回读记录保存在不进入 Git 的本地会话数据中。若实体相机、工具尖端或其安装发生变化，还需重做相应的几何标定与独立触点验证。仅改变控制器负载补偿不会改变名义坐标变换，但可能影响实际稳定状态或机械挠曲；应在手臂稳定后采集实测关节状态，并在安装状态变化后重做独立验证。本仓库的标定命令不会向控制器写入负载参数。
 
 ## 通过可视化引导采集静止手眼样本
 

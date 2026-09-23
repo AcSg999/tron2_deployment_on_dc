@@ -2,7 +2,7 @@
 
 [简体中文](calibration.zh-CN.md) · [README](../README.md) · Next: [deployment](deployment.md)
 
-The first route uses the top RGB-D camera at a fixed, measured head pose. Calibrate the color camera, solve its transform into `base_Link`, and independently validate that transform before preparing pregrasp targets. Record both wrist frames and their TCP mounting transforms. This workflow sends no gripper commands.
+The first route uses the head-mounted **Intel RealSense D435** RGB-D camera at a fixed, measured head pose. Calibrate its color camera, solve its transform into `base_Link`, and independently validate that transform before preparing pregrasp targets. Record both wrist frames and their TCP mounting transforms. This workflow sends no gripper commands.
 
 Launch `calibration-guide` from the CLI, then use its browser page to preview the board, capture samples and solve, following the steps below. The page shows progress and a compact result with the next action. Profile updates and independent validation stay in the existing CLI workflow.
 
@@ -94,88 +94,13 @@ After solving, stop the helper with Ctrl-C and apply the saved intrinsic result:
 
 Applying the fit updates `K`, distortion, and image dimensions. It invalidates prior extrinsic acceptance and leaves real execution disabled. Depth intrinsics and depth-to-color alignment remain separate measured inputs; this chessboard fit does not calibrate them.
 
-## Set arm payloads and prepare drag teaching
+## Controller payloads for drag teaching
 
-Drag teaching is needed to vary wrist poses before extrinsic collection. First identify the payload of each installed end effector in the robot management page, then write those identification results to the controller. The TRON2 interface takes `[m, mc_x, mc_y, mc_z]`: `m` is in kg and the remaining values are first mass moments in kg·m. **Do not** divide them by mass and write them as centre-of-mass coordinates. Replacing an end effector or changing its mounting invalidates these parameters and requires a new identification.
+Payload identification configures the robot controller's gravity compensation for the currently installed end effectors. It is **not an input** to camera intrinsics, hand-eye transforms, FK, or touch-point calculations in this repository. Do not copy `[m, mc_x, mc_y, mc_z]` into `sp_vision` or replace URDF/MJCF inertial entries with it: the three `mc` values are first mass moments in kg·m, and these four numbers do not specify a full rigid-body inertia.
 
-The measured values for the current robot, `DACH_TRON2A_091`, are:
+The payload values previously printed here and embedded in a controller-write script described an earlier installation. They are no longer a valid current command, so this guide does not retain them. An identification-page screenshot shows candidate values but does not establish robot identity or confirm controller readback.
 
-| Arm | `m` (kg) | `mc_x` (kg·m) | `mc_y` (kg·m) | `mc_z` (kg·m) |
-| --- | ---: | ---: | ---: | ---: |
-| Left (`arm=0`) | 1.199574 | -0.011601 | 0.008230 | -0.158851 |
-| Right (`arm=1`) | 1.103249 | -0.005505 | -0.003338 | -0.176561 |
-
-Exit drag-teach mode and safely support both arms. Confirm that an operator is present, the emergency stop is ready, and the robot address and device ID exactly match the script below. Stop any other client occupying the control port, then run this from the repository root. The script only sets and reads back payloads; it does not enter drag teaching or send arm, chassis, or gripper motion commands:
-
-```bash
-env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
-  NO_PROXY=10.192.1.2 no_proxy=10.192.1.2 \
-  .venv/bin/python - <<'PY'
-import json
-import time
-import uuid
-
-import websocket
-
-url = "ws://10.192.1.2:5000"
-expected_accid = "DACH_TRON2A_091"
-target = [
-    [1.199574, -0.011601, 0.008230, -0.158851],
-    [1.103249, -0.005505, -0.003338, -0.176561],
-]
-
-ws = websocket.create_connection(url, timeout=10)
-
-
-def receive(title, guid=None):
-    while True:
-        message = json.loads(ws.recv())
-        if message.get("title") == title and (
-            guid is None or message.get("guid") == guid
-        ):
-            return message
-
-
-robot_info = receive("notify_robot_info")
-accid = robot_info.get("accid")
-if accid != expected_accid:
-    raise SystemExit(f"wrong robot: expected {expected_accid}, received {accid}")
-
-
-def request(title, data):
-    guid = str(uuid.uuid4())
-    ws.send(json.dumps({
-        "accid": accid,
-        "title": title,
-        "timestamp": int(time.time() * 1000),
-        "guid": guid,
-        "data": data,
-    }))
-    return guid
-
-
-for arm, values in enumerate(target):
-    guid = request("request_set_payload_param", {"arm": arm, "data": values})
-    result = receive("response_set_payload_param", guid).get("data", {})
-    if result.get("result") != "success" or result.get("arm") != arm:
-        raise SystemExit(f"arm {arm} write failed: {result}")
-
-guid = request("request_get_payload_param", {})
-result = receive("response_get_payload_param", guid).get("data", {})
-actual = result.get("data")
-expected = target[0] + target[1]
-if result.get("result") != "success" or not isinstance(actual, list):
-    raise SystemExit(f"readback failed: {result}")
-if len(actual) != 8 or any(
-    abs(float(got) - want) > 1e-6 for got, want in zip(actual, expected)
-):
-    raise SystemExit(f"readback mismatch: expected {expected}, received {actual}")
-print(json.dumps({"accid": accid, "payload": actual, "verified": True}, indent=2))
-ws.close()
-PY
-```
-
-Enter drag teaching only after both arm writes return `success` and the final output contains `"verified": true`. If the robot responds to `ping` but the WebSocket handshake times out, check the host proxy settings; the command above explicitly bypasses proxies for `10.192.1.2`. If readback returns `fail_payload_get` or the values differ, do not enable drag teaching. Keep both arms supported while checking controller mode, end-effector mounting, and identification results.
+If the installed end effector or its mounting changed and you will use drag teaching, identify the current payload on the target robot, confirm its device ID, apply the result through the reviewed robot-management interface, and read it back **before** entering drag mode. Keep the identification and readback in a local, Git-ignored session record. If the physical camera, tool tip, or their mount changed, repeat the relevant geometric calibration and independent touch validation. Changing controller payload compensation alone does not alter the nominal coordinate transforms, but it can change settling or physical deflection; capture measured joint state after the arm settles and repeat independent validation when the setup changes. This repository's calibration commands do not write controller payload parameters.
 
 ## Collect stationary hand-eye samples with visual guidance
 

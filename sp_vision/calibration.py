@@ -12,7 +12,10 @@ import json
 import math
 import os
 from pathlib import Path
+import re
+import shutil
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -606,73 +609,102 @@ def open_camera(config):
     return driver_type(options_type(**options)), camera
 
 
-def capture_command(config, session: Path, count: int) -> None:
+def _replace_capture_views(session: Path, staged: Path) -> None:
+    """Replace numbered views after a complete capture, restoring them on failure."""
+    backup = staged.parent / "previous"
+    backup.mkdir()
+    previous = [path for path in session.iterdir()
+                if path.is_dir() and re.fullmatch(r"view-\d+", path.name)]
+    installed = []
+    try:
+        for path in previous:
+            path.replace(backup / path.name)
+        for path in sorted(staged.iterdir()):
+            destination = session / path.name
+            path.replace(destination)
+            installed.append(destination)
+    except OSError:
+        for path in installed:
+            path.replace(staged / path.name)
+        for path in backup.iterdir():
+            path.replace(session / path.name)
+        raise
+
+
+def capture_command(config, session: Path, count: int, append: bool = False) -> None:
     session = Path(session)
     session.mkdir(parents=True, exist_ok=True)
-    existing = enumerate_views(session)
+    existing = enumerate_views(session) if append else []
     next_index = max([int(path.name.split("-")[-1]) for path in existing] or [0]) + 1
-    target_total = len(existing) + count
-    driver, camera_config = open_camera(config)
-    print("Keys: s=save accepted sample, r/space=recapture, f=flip corner order 180 deg, q=quit")
-    try:
-        while len(enumerate_views(session)) < target_total:
-            rgb, _depth, sync = driver.capture(include_joint_state=True)
-            image = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            flip = False
-            while True:
-                corners, metrics = detect_board(image, config, flip)
-                frame = {
-                    "schema_version": SCHEMA_VERSION,
-                    "timestamp_s": time.time(),
-                    "camera_id": camera_config.get("identity"),
-                    "width": int(image.shape[1]),
-                    "height": int(image.shape[0]),
-                    "head_q2": sync.get("head_pitch_yaw"),
-                    "sensor_sync": sync,
-                    "corner_order_reversed_180": flip,
-                    "pattern": {
-                        "columns": int(config["board"]["columns"]),
-                        "rows": int(config["board"]["rows"]),
-                        "square_m": float(config["board"]["square_m"]),
-                    },
-                    "detection": metrics,
-                }
-                try:
-                    check_frame_sync(frame, config)
-                except ValueError as error:
-                    metrics = dict(metrics)
-                    metrics["accepted"] = False
-                    metrics["sync_error"] = str(error)
-                    frame["detection"] = metrics
-                drawing = draw_detection(image, corners, config, metrics)
-                cv2.imshow("sp_vision calibration capture", drawing)
-                key = cv2.waitKey(0) & 0xFF
-                if key in (ord("q"), 27):
-                    return
-                if key == ord("f") and corners is not None:
-                    flip = not flip
-                    continue
-                if key == ord("s"):
-                    if not metrics.get("accepted"):
-                        print(f"Rejected: {metrics}")
+    with tempfile.TemporaryDirectory(prefix=f".{session.name}-capture-", dir=session.parent) as temporary:
+        staged = Path(temporary) / "new"
+        staged.mkdir()
+        driver, camera_config = open_camera(config)
+        print("Keys: s=save accepted sample, r/space=recapture, f=flip corner order 180 deg, q=quit")
+        saved = 0
+        try:
+            while saved < count:
+                rgb, _depth, sync = driver.capture(include_joint_state=True)
+                image = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                flip = False
+                while True:
+                    corners, metrics = detect_board(image, config, flip)
+                    frame = {
+                        "schema_version": SCHEMA_VERSION,
+                        "timestamp_s": time.time(),
+                        "camera_id": camera_config.get("identity"),
+                        "width": int(image.shape[1]),
+                        "height": int(image.shape[0]),
+                        "head_q2": sync.get("head_pitch_yaw"),
+                        "sensor_sync": sync,
+                        "corner_order_reversed_180": flip,
+                        "pattern": {
+                            "columns": int(config["board"]["columns"]),
+                            "rows": int(config["board"]["rows"]),
+                            "square_m": float(config["board"]["square_m"]),
+                        },
+                        "detection": metrics,
+                    }
+                    try:
+                        check_frame_sync(frame, config)
+                    except ValueError as error:
+                        metrics = dict(metrics)
+                        metrics["accepted"] = False
+                        metrics["sync_error"] = str(error)
+                        frame["detection"] = metrics
+                    drawing = draw_detection(image, corners, config, metrics)
+                    cv2.imshow("sp_vision calibration capture", drawing)
+                    key = cv2.waitKey(0) & 0xFF
+                    if key in (ord("q"), 27):
+                        return
+                    if key == ord("f") and corners is not None:
+                        flip = not flip
                         continue
-                    output = session / f"view-{next_index:03d}"
-                    output.mkdir()
-                    if not cv2.imwrite(str(output / "color.png"), image):
-                        raise OSError(f"cannot write {output / 'color.png'}")
-                    write_json(output / "frame.json", frame)
-                    cv2.imwrite(str(output / "corners.png"), drawing)
-                    print(
-                        f"Saved {output.name}: head_q2={frame['head_q2']} "
-                        f"area={metrics['board_area_ratio']:.3f}"
-                    )
-                    next_index += 1
+                    if key == ord("s"):
+                        if not metrics.get("accepted"):
+                            print(f"Rejected: {metrics}")
+                            continue
+                        output = (session if append else staged) / f"view-{next_index:03d}"
+                        output.mkdir()
+                        if not cv2.imwrite(str(output / "color.png"), image):
+                            raise OSError(f"cannot write {output / 'color.png'}")
+                        write_json(output / "frame.json", frame)
+                        cv2.imwrite(str(output / "corners.png"), drawing)
+                        print(
+                            f"Saved {output.name}: head_q2={frame['head_q2']} "
+                            f"area={metrics['board_area_ratio']:.3f}"
+                        )
+                        next_index += 1
+                        saved += 1
+                        break
+                    # r, space, Enter, and every unhandled key recapture without saving.
                     break
-                # r, space, Enter, and every unhandled key recapture without saving.
-                break
-    finally:
-        driver.close()
-        cv2.destroyAllWindows()
+        finally:
+            driver.close()
+            cv2.destroyAllWindows()
+        if not append:
+            _replace_capture_views(session, staged)
+            print("Replaced previous view-* images; rerun intrinsics and extrinsics for this session.")
 
 
 def _camera_fit(object_sets, image_sets, size):
@@ -1157,7 +1189,22 @@ def selected_corner_indices(config, specified):
     return indices
 
 
-def select_validation_command(config, frame_dir, intrinsics_path, extrinsics_path, output, specified):
+def reused_corner_indices(config, selection_path):
+    previous = read_json(selection_path)
+    if previous.get("kind") != "sp_vision_touch_selection":
+        raise ValueError("--reuse-selection must be a touch selection JSON")
+    chosen = previous.get("corners", [])
+    if len(chosen) != 3 or [item.get("touch_order") for item in chosen] != [1, 2, 3]:
+        raise ValueError("previous selection must contain three ordered corners")
+    return selected_corner_indices(
+        config, [(int(item["row"]), int(item["column"])) for item in chosen]
+    )
+
+
+def select_validation_command(config, frame_dir, intrinsics_path, extrinsics_path, output, specified,
+                              reuse_selection=None):
+    if specified and reuse_selection:
+        raise ValueError("choose either --corner or --reuse-selection")
     intrinsics, extrinsics = read_json(intrinsics_path), read_json(extrinsics_path)
     if not intrinsics.get("passed") or not extrinsics.get("passed"):
         raise ValueError("intrinsics and extrinsics must pass before touch validation")
@@ -1173,7 +1220,9 @@ def select_validation_command(config, frame_dir, intrinsics_path, extrinsics_pat
     threshold = float(config.get("quality", {}).get("max_pnp_rms_px", 1.5))
     if pnp_rms > threshold:
         raise ValueError(f"validation PnP RMS {pnp_rms:.3f} px exceeds {threshold:.3f} px")
-    if specified:
+    if reuse_selection:
+        indices = reused_corner_indices(config, reuse_selection)
+    elif specified:
         indices = selected_corner_indices(config, specified)
     else:
         indices = choose_corners(image, corners, config)
@@ -1217,6 +1266,8 @@ def select_validation_command(config, frame_dir, intrinsics_path, extrinsics_pat
         "corners": records,
         "marked_image": str(marked_path.resolve()),
     }
+    if reuse_selection:
+        result["reused_selection"] = str(Path(reuse_selection).resolve())
     write_json(output, result)
     print(json.dumps({"output": str(output), "marked_image": str(marked_path), "corners": [[item["row"], item["column"]] for item in records]}, indent=2))
 
@@ -1308,7 +1359,8 @@ def build_parser():
     capture = commands.add_parser("capture", help="capture accepted moving-head checkerboard samples")
     add_board_arguments(capture)
     capture.add_argument("--session", required=True, type=Path)
-    capture.add_argument("--count", type=int, default=30, help="new samples to append")
+    capture.add_argument("--count", type=int, default=40, help="views to capture in this run")
+    capture.add_argument("--append", action="store_true", help="append views instead of replacing the session's views")
 
     intrinsics = commands.add_parser("intrinsics", help="fit camera intrinsics")
     add_board_arguments(intrinsics)
@@ -1332,6 +1384,7 @@ def build_parser():
     selection.add_argument("--intrinsics", required=True, type=Path)
     selection.add_argument("--extrinsics", required=True, type=Path)
     selection.add_argument("--corner", action="append", type=parse_corner, help="ROW,COLUMN; repeat exactly 3 times")
+    selection.add_argument("--reuse-selection", type=Path, help="reuse ordered corners from an earlier touch selection")
     selection.add_argument("--output", required=True, type=Path)
 
     validate = commands.add_parser("validate", help="compare predicted corners with touched TCP points")
@@ -1362,7 +1415,7 @@ def main(argv=None):
     if args.command == "capture":
         if args.count <= 0:
             raise ValueError("--count must be positive")
-        capture_command(config, args.session, args.count)
+        capture_command(config, args.session, args.count, append=args.append)
         return 0
     if args.command == "intrinsics":
         return 0 if intrinsics_command(config, args.session, args.output) else 1
@@ -1372,7 +1425,8 @@ def main(argv=None):
         return 0 if pivot_command(config, args.side, args.states, args.output) else 1
     if args.command == "select-validation":
         select_validation_command(
-            config, args.frame, args.intrinsics, args.extrinsics, args.output, args.corner
+            config, args.frame, args.intrinsics, args.extrinsics, args.output, args.corner,
+            reuse_selection=args.reuse_selection
         )
         return 0
     if args.command == "validate":

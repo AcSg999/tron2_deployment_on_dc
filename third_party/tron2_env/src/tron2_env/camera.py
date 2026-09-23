@@ -16,7 +16,7 @@ class MultiCameraManager:
     """RealSense 多相机管理器
 
     每个相机在独立线程中采集，避免串行 wait_for_frames 阻塞。
-    支持 D455 (cam_high) 和 D405 (wrist) 的高帧率模式。
+    支持 D435 (cam_high) 和 D405 (wrist) 的高帧率模式。
     """
 
     def __init__(

@@ -87,9 +87,9 @@ Paths in the profile are relative to the profile file; absolute paths and enviro
 
 Recompute and review the model after geometry changes. The XML must include the real collision geometry; a hash confirms the selected model identity, not its physical accuracy. Numerical MuJoCo supplies FK/IK and collision checks without a viewer. RViz is the only graphical trajectory review step.
 
-## Connect the top RGB-D camera
+## Connect the head-mounted D435 RGB-D camera
 
-The real capture adapter currently supports **640×480 color and depth**. It aligns depth using the profile's factory/measured depth intrinsics and depth-to-color transform, then undistorts RGB and aligned depth together. Retain the correct metric depth scale and validate alignment for the selected physical camera.
+The installed head/top camera is an **Intel RealSense D435**, exposed as `cam_high` and through `/camera/top/...` topics. The real capture adapter currently supports **640×480 color and depth**. It aligns depth using the profile's factory/measured depth intrinsics and depth-to-color transform, then undistorts RGB and aligned depth together. Retain the correct metric depth scale and validate alignment for this physical D435.
 
 For `camera.backend="ros"`, configure `ros_master_uri`, the workstation's reachable `ros_ip`, and the color, depth and joint-state topics. The template's topics are `/camera/top/color/image_raw/compressed`, `/camera/top/depth/image_rect_raw` and `/joint_states`. For `camera.backend="bridge"`, configure `bridge_host`, `bridge_path` and, if required, `token_env` naming the environment variable holding the token. Use the deployed bridge's actual route and TLS settings; the client defaults are `127.0.0.1:18443` and `/bridge/ws`.
 

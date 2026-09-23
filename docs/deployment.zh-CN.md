@@ -87,9 +87,9 @@ cp configs/robot.example.json configs/local-robot-seed.json
 
 几何变化后重新计算并审核模型。XML 必须包含真实碰撞几何；哈希确认选定模型的身份，不能证明其与实物一致。MuJoCo 以数值方式提供 FK/IK 和碰撞检查，不打开查看器。RViz 是唯一的图形轨迹审核步骤。
 
-## 连接高位 RGB-D 相机
+## 连接头部 D435 RGB-D 相机
 
-真实采集适配器当前支持 **640×480 彩色与深度图像**。它使用配置中的出厂/实测深度内参和深度到彩色变换对齐深度，再同步去除 RGB 与对齐深度的畸变。保留正确的米制深度尺度，并针对选定实物相机验证对齐。
+实机头部/高位相机为 **Intel RealSense D435**，运行时名称为 `cam_high`，并通过 `/camera/top/...` 话题提供数据。真实采集适配器当前支持 **640×480 彩色与深度图像**。它使用配置中的出厂/实测深度内参和深度到彩色变换对齐深度，再同步去除 RGB 与对齐深度的畸变。保留正确的米制深度尺度，并针对这台实物 D435 验证对齐。
 
 使用 `camera.backend="ros"` 时，配置 `ros_master_uri`、可被机器人访问的工作站 `ros_ip`，以及彩色、深度和关节状态话题。模板中的话题为 `/camera/top/color/image_raw/compressed`、`/camera/top/depth/image_rect_raw` 和 `/joint_states`。使用 `camera.backend="bridge"` 时，配置 `bridge_host`、`bridge_path`，如需令牌则用 `token_env` 指定保存令牌的环境变量名。采用已部署 bridge 的实际路由及 TLS 设置；客户端默认值为 `127.0.0.1:18443` 和 `/bridge/ws`。
 
