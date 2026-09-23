@@ -28,7 +28,7 @@ Capture, segment, estimate, and plan. Review the displayed plan in RViz, then ch
 
 Complete these installation-specific checks before enabling real execution:
 
-1. Confirm fresh, read-only camera and joint feedback, matching camera identity, synchronized clocks, and the recorded fixed head pose.
+1. Confirm fresh, read-only D435 and joint feedback, matching camera identity, synchronized clocks, and the recorded fixed head pose.
 2. Complete [calibration](calibration.md), independently check both wrist/TCP mounts, and confirm the registered object geometry and measured table frame.
 3. Check that the numeric model and RViz URDF match the installed robot and passive attachments. Verify all joint mappings, limits, collision masks/exclusions, and attachment clearances.
 4. Verify the controller's bounded hold behavior and physical emergency-stop procedure under supervision. Record the observed behavior, timing, and failure handling.

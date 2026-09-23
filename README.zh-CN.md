@@ -4,6 +4,8 @@
 
 本仓库提供独立的**基于物体位姿的双腕预抓取**部署工具：定位物体，选择可达的接近方向与腕部姿态，在 RViz 中审核轨迹，运动到预留间距处并停止。应用不发送夹爪指令，也不执行接触或抓取动作。
 
+实机头部/高位 RGB-D 相机为 **Intel RealSense D435**。运行时名称 `cam_high` 和 `/camera/top/...` 话题均指这台 D435。
+
 物体位姿用于确定目标几何关系，而不是直接复制物体四元数。轴对称物体根据当前腕部位置选择径向接近方向，因此无实际意义的物体偏航不会改变目标。非对称物体使用配置的物体系锚点和向外方向。TCP 的 +Z 指向物体，+Y 沿投影后的物体向上轴；再用已标定的腕部到 TCP 变换换算腕部目标。
 
 | 阶段 | 文档 | 输出 |
@@ -39,3 +41,5 @@ bash scripts/install.sh
 ```
 
 软件包运行时不导入 `dexpipe`、Gaia20、RL 或重定向流水线。FoundationPose 和 SAM 的 GPU 服务仍在外部运行，本仓库包含其 RPC 客户端。`third_party/tron2_env` 保留带本地补丁的传输层快照及上游声明，不包含嵌套 Git 元数据。`SOURCE_MANIFEST.json` 记录来源与移植文件。源历史保留在 [dexpipe](https://github.com/Shukashuki/dexpipe)。
+
+
