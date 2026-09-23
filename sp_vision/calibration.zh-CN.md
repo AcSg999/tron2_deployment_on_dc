@@ -210,7 +210,7 @@ T_base_camera(q_yaw, q_pitch)
 
 ## 五、选择三个角点并触碰验证
 
-外参求解结束后，在棋盘保持固定的情况下另拍一张不参与求解的新图像：
+外参求解结束后，下面是拍一张不参与求解的新图像：
 
 ```bash
 .venv/bin/python sp_vision/calibration.py \
@@ -228,11 +228,10 @@ T_base_camera(q_yaw, q_pitch)
   --frame sp_vision/data/touch-validation/view-001 \
   --intrinsics sp_vision/data/head-camera-session/intrinsics.json \
   --extrinsics sp_vision/data/head-camera-session/extrinsics.json \
-  
   --output sp_vision/data/touch-validation/selection.json
 ```
 --corner 0,0 --corner 0,6 --corner 9,3 \
-先打开 `selection.png`，确认编号 1、2、3 与将要触碰的实体角点完全一致。保持棋盘不动，通过机器人已有的受审核控制界面，让同一个已标定尖端依次接触 1、2、3，并按同一顺序读取状态。拍照后允许移动头部：相机预测使用的是图像同步记录的 `head_q2`，触碰状态中的头姿变化只记录为诊断信息，不参与误差判定。
+先打开 `selection.png`，确认编号 1、2、3 与将要触碰的实体角点完全一致。保持棋盘和头部不动，通过机器人已有的受审核控制界面，让同一个已标定尖端依次接触 1、2、3，并按同一顺序读取状态：
 
 ```bash
 .venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
