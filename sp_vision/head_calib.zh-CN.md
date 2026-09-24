@@ -26,14 +26,14 @@
 
 采集时固定棋盘格并移动头部的 yaw、pitch。程序不控制头部、机械臂、灵巧手或夹爪；所有运动都通过机器人已有且经过审核的界面人工完成。代码和生成配置均使用 JSON，不使用 YAML。
 
-实机头部相机为 **Intel RealSense D455**，本流程标定它的彩色光学坐标系。总装模型中的文件名 `d435i_visual_m.obj` 只是可视化资产名称，不改变实物相机型号或被标定的坐标系。
+实机头部相机为 **Intel RealSense D455**，本流程标定它的彩色光学坐标系。机身名义尺寸和光学坐标系偏移取自 [RealSense D455 描述](https://github.com/realsenseai/realsense-ros/blob/ros2-master/realsense2_description/urdf/_d455.urdf.xacro)。固定安装位置仍是估计值，需要在实机上核实。模型修改前生成的标定 JSON 记录的是旧的名义变换和模型一致性结果；接受新模型前，应重新求解外参并进行独立触点验证。
 
 ## 最终模型与坐标约定
 
 本实验以仓库中的最终带灵巧手模型为准：
 
-- `configs/assembly.urdf`：运动学真值；
-- `configs/scene.xml`：MuJoCo 场景真值及交叉检查；
+- `sp_vision/configs/assembly.urdf`：运动学真值；
+- `sp_vision/configs/scene.xml`：MuJoCo 场景真值及交叉检查；
 - `head_camera_color_optical_frame`：被标定的彩色光学坐标系，OpenCV 约定为 +x 向右、+y 向下、+z 向前；
 - `head_pitch_Link`：与相机最近的可动 pitch 轴坐标系。
 

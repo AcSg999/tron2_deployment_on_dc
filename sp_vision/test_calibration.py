@@ -81,6 +81,8 @@ def test_yaw_moves_pitch_origin_but_pitch_does_not_move_its_own_origin():
 def test_assembly_urdf_and_scene_xml_agree_on_head_camera_chain():
     config = subject.load_config(Path(__file__).parent / "configs" / "head_config.example.json")
     model = subject.robot_kinematics(config)
+    nominal = subject.nominal_camera_matrix(config, model)
+    assert np.allclose(nominal[:3, 3], [0.06915, -0.0423, 0.0553])
     result = subject.check_model_consistency(
         config, model, [[0.0, 0.0], [0.35, -0.4], [-0.25, 0.5]]
     )

@@ -263,7 +263,6 @@
     <mesh name="revo3__hands__collision__right__right_little_PIP_Link" content_type="model/stl" file="meshes/revo3/hands/collision/right/revo3__hands__collision__right__right_little_PIP_Link.STL" />
     <mesh name="revo3__hands__visual__right__right_little_DIP_Link" content_type="model/stl" file="meshes/revo3/hands/visual/right/revo3__hands__visual__right__right_little_DIP_Link.STL" />
     <mesh name="revo3__hands__collision__right__right_little_DIP_Link" content_type="model/stl" file="meshes/revo3/hands/collision/right/revo3__hands__collision__right__right_little_DIP_Link.STL" />
-    <mesh name="d435i_visual_m" content_type="model/obj" file="meshes/cameras/d435i_visual_m.obj" />
     <mesh name="left_aligned_v3_m" content_type="model/stl" file="meshes/wrist_camera_brackets/supplied_aligned_v3/left_aligned_v3_m.stl" />
     <mesh name="d405_visual_m" content_type="model/stl" file="meshes/cameras/d405_visual_m.stl" />
     <mesh name="right_aligned_v3_m" content_type="model/stl" file="meshes/wrist_camera_brackets/supplied_aligned_v3/right_aligned_v3_m.stl" />
@@ -303,14 +302,14 @@
             <geom type="mesh" rgba="0.22 0.27 0.32 1" mesh="head_pitch_Link" group="3" />
             <body name="head_camera_mount_frame" pos="0.058 -0.0308 0.0408">
               <body name="head_camera_bottom_screw_frame">
-                <body name="head_camera_link" pos="0.0106 0.0175 0.0125">
-                  <geom pos="0.0043 -0.0175 0" quat="0.5 0.5 0.5 0.5" type="mesh" contype="0" conaffinity="0" group="1" rgba="0.16 0.18 0.21 1" density="0" mesh="d435i_visual_m" />
+                <body name="head_camera_link" pos="0.01115 0.0475 0.0145">
+                  <geom pos="-0.00845 -0.0475 0" size="0.013 0.062 0.0145" type="box" contype="0" conaffinity="0" group="1" rgba="0.16 0.18 0.21 1" density="0" />
                   <body name="head_camera_depth_frame">
                     <body name="head_camera_depth_optical_frame" quat="0.5 -0.5 0.5 -0.5">
                       <camera name="head_depth" quat="0 1 0 0" resolution="640 480" sensorsize="1 1" focalpixel="337.20964009 432.971461265" principalpixel="0 0" />
                     </body>
                   </body>
-                  <body name="head_camera_color_frame" pos="0 0.015 0">
+                  <body name="head_camera_color_frame" pos="0 -0.059 0">
                     <body name="head_camera_color_optical_frame" quat="0.5 -0.5 0.5 -0.5">
                       <camera name="head_color" quat="0 1 0 0" resolution="640 480" sensorsize="1 1" focalpixel="465.602889175 625.221375527" principalpixel="0 0" />
                     </body>

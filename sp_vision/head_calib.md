@@ -25,14 +25,14 @@ This directory implements one minimal workflow:
 
 The program does not command the head, arms, hands, or grippers. Perform motion manually through the robot's existing reviewed interface. Inputs and outputs use JSON, not YAML.
 
-The installed head camera is an **Intel RealSense D455**, and this workflow calibrates its color optical frame. The `d435i_visual_m.obj` filename in the assembled model is a visualization-asset name; it does not change the physical camera identification or the calibrated frame.
+The installed head camera is an **Intel RealSense D455**, and this workflow calibrates its color optical frame. The nominal housing dimensions and optical offsets come from the [RealSense D455 description](https://github.com/realsenseai/realsense-ros/blob/ros2-master/realsense2_description/urdf/_d455.urdf.xacro). The fixed mount position remains an estimate; confirm it on the installed robot. Calibration JSON generated before this model change contains the earlier nominal transform and model-consistency result, so rerun the extrinsic solve and independent touch validation before accepting the updated model.
 
 ## Final model and frame convention
 
 The final dexterous-hand models are authoritative:
 
-- `configs/assembly.urdf` supplies kinematics;
-- `configs/scene.xml` cross-checks the same head_camera chain;
+- `sp_vision/configs/assembly.urdf` supplies kinematics;
+- `sp_vision/configs/scene.xml` cross-checks the same head_camera chain;
 - `head_camera_color_optical_frame` is the calibrated OpenCV color frame (+x right, +y down, +z forward);
 - `head_pitch_Link` is the camera's nearest moving pitch frame.
 

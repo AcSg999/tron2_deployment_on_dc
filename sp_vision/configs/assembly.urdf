@@ -2780,9 +2780,10 @@
   </joint>
   <link name="head_camera_link">
     <visual>
-      <origin xyz="0.0043 -0.0175 0" rpy="1.57079632679 0 1.57079632679" />
+      <!-- D455 housing, centered relative to the depth origin. -->
+      <origin xyz="-0.00845 -0.0475 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="meshes/cameras/d435i_visual_m.obj" />
+        <box size="0.026 0.124 0.029" />
       </geometry>
       <material name="head_camera_camera_dark">
         <color rgba="0.16 0.18 0.21 1" />
@@ -2792,7 +2793,7 @@
   <joint name="head_camera_link_joint" type="fixed">
     <parent link="head_camera_bottom_screw_frame" />
     <child link="head_camera_link" />
-    <origin xyz="0.0106 0.0175 0.0125" rpy="0 0 0" />
+    <origin xyz="0.01115 0.0475 0.0145" rpy="0 0 0" />
   </joint>
   <link name="head_camera_depth_frame" />
   <joint name="head_camera_depth_joint" type="fixed">
@@ -2810,7 +2811,7 @@
   <joint name="head_camera_color_joint" type="fixed">
     <parent link="head_camera_link" />
     <child link="head_camera_color_frame" />
-    <origin xyz="0 0.015 0" rpy="0 0 0" />
+    <origin xyz="0 -0.059 0" rpy="0 0 0" />
   </joint>
   <link name="head_camera_color_optical_frame" />
   <joint name="head_camera_color_optical_joint" type="fixed">
