@@ -1,6 +1,8 @@
 # 头部相机最小标定实验
 
-[English](calibration.md)
+[English](head_calib.md)
+
+[腕部相机最小标定](wrist_calib.zh-CN.md)
 
 控制器负载辨识值（`m`、`mc_x`、`mc_y`、`mc_z`）不参与本实验的图像、关节角和 FK 标定，不应填入本实验 JSON 或 URDF 相机变换。若使用拖动示教调整机器人姿态，应在该操作前单独为控制器设置当前负载并回读确认。
 
@@ -9,12 +11,14 @@
 实机彩色相机话题运行在 `guest@10.192.1.4` 的 ROS 2 Foxy 中，本机 ROS 1 Noetic 的 `rostopic` 无法发现这些话题。从仓库根目录运行以下命令，读取 `/camera/right/color/image_resized/compressed` 的右手腕彩色图像：
 
 ```bash
-.venv/bin/python sp_vision/capture_ros2_image.py
+.venv/bin/python capture_ros2_image.py
 ```
 
-脚本通过 SSH 使用传感器数据 QoS 订阅 `sensor_msgs/msg/CompressedImage`，保存到 `sp_vision/data/right-camera-latest.jpg`。加 `--camera top` 可读取对应的头部彩色话题 `/camera/top/color/image_raw/compressed`。两种方式都只读取图像；单帧快照不包含深度或关节状态，也不是经过标定的观测结果。
+脚本通过 SSH 使用传感器数据 QoS 订阅 `sensor_msgs/msg/CompressedImage`，保存到 `data/right-camera-latest.jpg`。加 `--camera top` 可读取对应的头部彩色话题 `/camera/top/color/image_raw/compressed`。两种方式都只读取图像；单帧快照不包含深度或关节状态，也不是经过标定的观测结果。
 
-本目录是一个独立的最小实验，只标定：
+本目录本身就是一个可复制的独立标定单元。命令默认使用本目录下的配置、`configs/assembly.urdf`、`configs/scene.xml` 和 `configs/robot_profile.example.json`；数据、诊断图和结果统一写入本目录的 `data/`。离线求解不依赖 `tron2_deployment`，只有实时采集才需要可选的相机适配器。
+
+本实验只标定：
 
 1. 头部彩色相机内参；
 2. 彩色光学相机坐标系到 `head_pitch_Link` 的刚体外参 `T_pitch_camera`；
@@ -22,7 +26,7 @@
 
 采集时固定棋盘格并移动头部的 yaw、pitch。程序不控制头部、机械臂、灵巧手或夹爪；所有运动都通过机器人已有且经过审核的界面人工完成。代码和生成配置均使用 JSON，不使用 YAML。
 
-实机头部相机为 **Intel RealSense D435**，本流程标定它的彩色光学坐标系。总装模型中的文件名 `d435i_visual_m.obj` 只是可视化资产名称，不改变实物相机型号或被标定的坐标系。
+实机头部相机为 **Intel RealSense D455**，本流程标定它的彩色光学坐标系。总装模型中的文件名 `d435i_visual_m.obj` 只是可视化资产名称，不改变实物相机型号或被标定的坐标系。
 
 ## 最终模型与坐标约定
 
@@ -47,29 +51,29 @@ T_base_pitch(q_yaw, q_pitch)
 
 yaw→pitch 的固定偏移是 `[0.051, 0.03, 0.097] m`。因此 yaw 旋转会带着 pitch 轴原点移动；pitch 只绕自己的原点旋转，不会改变 yaw，也不会移动自身原点。虽然采集 JSON 的顺序是 `[head_pitch_Joint, head_yaw_Joint]`，程序先按关节名称建立映射，再依照 URDF 的父子链执行 yaw→pitch，不依赖数组顺序猜测。
 
-每次外参求解都会检查 `assembly.urdf` 和 `scene.xml` 在三个不同头姿下的 `base→pitch` 与 `pitch→color optical` 变换；两者不一致时直接停止。
+每次外参求解都会检查 `configs/assembly.urdf` 和 `configs/scene.xml` 在三个不同头姿下的 `base→pitch` 与 `pitch→color optical` 变换；两者不一致时直接停止。
 
 ## 棋盘格与依赖
 
 当前实体板为横向 7、纵向 10 个**内角点**，方格边长 `0.021 m`。即印刷图案应有 8×11 个方格，并在四周留至少约一个方格宽的白边。修改标定板后必须同步修改 JSON 中的三个参数。
 
-棋盘参数也可以像旧流程一样直接写在命令中：`--pattern` 始终表示“列数×行数”的内角点，`--square-m` 表示实测方格边长（米）。命令行值优先于 JSON；内参、外参和验证参数不一致时程序会拒绝继续。
+棋盘参数也可以直接写在命令中：`--pattern` 始终表示“列数×行数”的内角点，`--square-m` 表示实测方格边长（米）。命令行值优先于 JSON；内参、外参和验证参数不一致时程序会拒绝继续。
 
 从仓库根目录准备实验配置：
 
 ```bash
-cp sp_vision/head_config.example.json sp_vision/local-calibration.json
-.venv/bin/python -m pip install -r sp_vision/requirements.txt
+cp configs/head_config.example.json configs/head_config.json
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-检查 `sp_vision/local-calibration.json` 中的路径。默认已经指向：
+检查 `head_config.json` 中的路径。默认已经指向本目录内的：
 
 ```json
 {
-  "capture": {"profile": "../configs/local-robot-seed.json"},
+  "capture": {"profile": "robot_profile.example.json"},
   "robot": {
-    "urdf": "../configs/assembly.urdf",
-    "model_xml": "../configs/scene.xml",
+    "urdf": "assembly.urdf",
+    "model_xml": "scene.xml",
     "pitch_link": "head_pitch_Link",
     "camera_frame": "head_camera_color_optical_frame"
   }
@@ -83,10 +87,10 @@ cp sp_vision/head_config.example.json sp_vision/local-calibration.json
 把棋盘刚性固定在相机和机械臂都能看到、触及的位置。整个内参和外参数据集内不得移动棋盘。运行：
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-head-calibration.json capture \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/head-camera-session --count 40
+  --session data/head_camera_session --count 40
 ```
 
 默认情况下，`--count` 是本轮重新采集的总张数。全部采完后，新图像将替换同一 `--session` 中原来的 `view-*` 目录，并从 `view-001` 重新编号；中途退出则保留原数据。如需有意续采，显式传入 `--append --count N`；例如已有 30 张时用 `--append --count 10` 追加到 40 张。两种采集方式结束后都需重新求解内参和外参，因为原有 JSON 结果仍对应之前的图像。
@@ -103,7 +107,7 @@ cp sp_vision/head_config.example.json sp_vision/local-calibration.json
 预览使用与附图相同的彩色逐行连线，并标出四角的 `(row,column)`。每帧保存为：
 
 ```text
-sp_vision/data/head-camera-session/
+data/head_camera_session/
   view-001/
     color.png
     corners.png
@@ -128,11 +132,11 @@ findChessboardCornersSB(
 ## 二、求解内参
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json intrinsics \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json intrinsics \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/head-camera-session \
-  --output sp_vision/data/head-camera-session/intrinsics.json
+  --session data/head_camera_session \
+  --output data/head_camera_session/head_intrinsics.json
 ```
 
 程序只用训练帧拟合 `K` 和五参数畸变，并用逐帧重投影误差剔除明显异常视角。剔除记录和原因写入 JSON，不会静默消失。结果还检查整个图像范围内的径向畸变映射是否保持单调；非单调结果视为标定失败。
@@ -142,7 +146,7 @@ findChessboardCornersSB(
 .venv/bin/python - <<'PY'
 import json
 
-path = "sp_vision/data/head-camera-session/intrinsics.json"
+path = "data/head_camera_session/head_intrinsics.json"
 result = json.load(open(path))
 
 print("总体重投影 RMS:", result["rms_px"], "px")
@@ -162,12 +166,12 @@ RMS 小并不能弥补姿态覆盖不足。焦距或主点与相机出厂值相�
 ## 三、求解相机到 pitch 轴外参
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json extrinsics \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json extrinsics \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/head-camera-session \
-  --intrinsics sp_vision/data/head-camera-session/intrinsics.json \
-  --output sp_vision/data/head-camera-session/extrinsics.json
+  --session data/head_camera_session \
+  --intrinsics data/head_camera_session/head_intrinsics.json \
+  --output data/head_camera_session/head_extrinsics.json
 ```
 
 每帧先用 IPPE PnP 求 `T_camera_board`，再从最终 URDF 按该帧同步的 yaw、pitch 求 `T_base_pitch`。固定棋盘满足：
@@ -185,7 +189,7 @@ T_base_pitch(i) · T_pitch_camera · T_camera_board(i)
 - `nominal_T_pitch_camera`：最终 URDF 中的名义安装值，仅供比较；
 - `calibrated_from_nominal`：实测与名义安装的差异；
 - `training`、`holdout`：每帧 PnP、平移和旋转残差；
-- `model_consistency`：`assembly.urdf` 与 `scene.xml` 的链一致性检查。
+- `model_consistency`：`configs/assembly.urdf` 与 `configs/scene.xml` 的链一致性检查。
 
 运行时相机在基座中的动态位姿为：
 
@@ -203,23 +207,23 @@ T_base_camera(q_yaw, q_pitch)
 用同一个尖端抵住同一个固定点，改变至少四种明显不同的腕部朝向，每次稳定后只读取状态：
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/tcp/pose-01.json
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/tcp/pose-02.json
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/tcp/pose-03.json
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/tcp/pose-04.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/tcp/pose-01.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/tcp/pose-02.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/tcp/pose-03.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/tcp/pose-04.json
 ```
 
 离线拟合腕部坐标中的尖端位置：
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json pivot --side right\
-  --states sp_vision/data/tcp/pose-{01,02,03,04}.json \
-  --output sp_vision/data/tcp/result.json
+.venv/bin/python calibration.py \
+  --config configs/head_config.json pivot --side right\
+  --states data/tcp/pose-{01,02,03,04}.json \
+  --output data/head_camera_session/tcp/head_tcp_pivot.json
 ```
 
 `passed` 必须为 `true`。该步骤只标定触点位置，不标定工具朝向。
@@ -229,33 +233,33 @@ T_base_camera(q_yaw, q_pitch)
 外参求解结束后，下面是拍一张不参与求解的新图像：
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json capture \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/touch-validation --count 1
+  --session data/touch-validation --count 1
 ```
 
 选择三个分散且不共线的内角点。省略 `--corner` 时可在窗口中点击，程序会吸附到最近的已检测角点；下面示例直接按行列指定：
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json select-validation \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json select-validation \
   --pattern 7x10 --square-m 0.021 \
-  --frame sp_vision/data/touch-validation/view-001 \
-  --intrinsics sp_vision/data/head-camera-session/intrinsics.json \
-  --extrinsics sp_vision/data/head-camera-session/extrinsics.json \
-  --output sp_vision/data/touch-validation/selection.json
+  --frame data/touch-validation/view-001 \
+  --intrinsics data/head_camera_session/head_intrinsics.json \
+  --extrinsics data/head_camera_session/head_extrinsics.json \
+  --output data/head_camera_validation/head_selection.json
 ```
 --corner 0,0 --corner 0,6 --corner 9,3 \
 先打开 `selection.png`，确认编号 1、2、3 与将要触碰的实体角点完全一致。保持棋盘和头部不动，通过机器人已有的受审核控制界面，让同一个已标定尖端依次接触 1、2、3，并按同一顺序读取状态：
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/touch-validation/state-01.json
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/touch-validation/state-02.json
-.venv/bin/tron2-deploy state --profile configs/local-robot-seed.json \
-  --output sp_vision/data/touch-validation/state-03.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/touch-validation/state-01.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/touch-validation/state-02.json
+.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/touch-validation/state-03.json
 ```
 
 程序不会发送任何运动命令。现场必须有人监护，使用低速和可重复定位的尖端，避免碰撞或推动棋盘。
@@ -263,12 +267,12 @@ T_base_camera(q_yaw, q_pitch)
 执行比较：
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json validate \
-  --selection sp_vision/data/touch-validation/selection.json \
-  --side right --tcp sp_vision/data/tcp/result.json \
-  --states sp_vision/data/touch-validation/state-{01,02,03}.json \
-  --output sp_vision/data/touch-validation/report.json
+.venv/bin/python calibration.py \
+  --config configs/head_config.json validate \
+  --selection data/head_camera_validation/head_selection.json \
+  --side right --tcp data/head_camera_session/tcp/head_tcp_pivot.json \
+  --states data/touch-validation/state-{01,02,03}.json \
+  --output data/head_camera_validation/head_validation.json
 ```
 
 相机链预测值为：
@@ -288,45 +292,45 @@ p_base_touch
   = T_base_wrist(arm_q14) · p_wrist_tip
 ```
 
-最终比较的是两者在 `base_Link` 下的三维欧氏距离，不比较关节角。同一个空间点可能对应多组关节角，因此用关节角作为误差指标不成立。`report.json` 给出三点各自误差、平均误差和最大误差；默认最大允许误差为 10 mm，必须根据 TCP 重复性、棋盘固定误差和实际任务间隙预算重新确定。
-**report.json中有predicted的xyz和actual xyz，如果要补偿可以在这里取平均**
+最终比较的是两者在 `base_Link` 下的三维欧氏距离，不比较关节角。同一个空间点可能对应多组关节角，因此用关节角作为误差指标不成立。`head_validation.json` 给出三点各自误差、平均误差和最大误差；默认最大允许误差为 10 mm，必须根据 TCP 重复性、棋盘固定误差和实际任务间隙预算重新确定。
+**head_validation.json中有predicted的xyz和actual xyz，如果要补偿可以在这里取平均**
 
 ## 换一个头姿复核之前的触点
 
 接受右臂 TCP 固定点标定结果、完成第一次棋盘触点选择并保存三份触碰状态后，保持棋盘在基座中的位置和朝向不变，尖端也保持同一刚性安装；头部相机可以移动。重新拍一张带同步头姿的彩色图，按原触碰顺序复用上次选中的三个实体角点，再用旧的机械臂状态计算触点基座坐标并比较距离。这是离线检查，不驱动机器人，也不需要重新触碰。
 
 ```bash
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json capture \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session sp_vision/data/touch-recheck --count 1
+  --session data/touch-recheck --count 1
 
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json select-validation \
+.venv/bin/python calibration.py \
+  --config configs/head_config.json select-validation \
   --pattern 7x10 --square-m 0.021 \
-  --frame sp_vision/data/touch-recheck/view-001 \
-  --intrinsics sp_vision/data/head-camera-session/intrinsics.json \
-  --extrinsics sp_vision/data/head-camera-session/extrinsics.json \
-  --reuse-selection sp_vision/data/touch-validation/selection.json \
-  --output sp_vision/data/touch-recheck/selection.json
+  --frame data/touch-recheck/view-001 \
+  --intrinsics data/head_camera_session/head_intrinsics.json \
+  --extrinsics data/head_camera_session/head_extrinsics.json \
+  --reuse-selection data/head_camera_validation/head_selection.json \
+  --output data/head_camera_validation/head_recheck_selection.json
 
-.venv/bin/python sp_vision/calibration.py \
-  --config sp_vision/local-calibration.json validate \
-  --selection sp_vision/data/touch-recheck/selection.json \
-  --side right --tcp sp_vision/data/tcp/result.json \
-  --states sp_vision/data/touch-validation/state-{01,02,03}.json \
-  --output sp_vision/data/touch-recheck/report.json
+.venv/bin/python calibration.py \
+  --config configs/head_config.json validate \
+  --selection data/head_camera_validation/head_recheck_selection.json \
+  --side right --tcp data/head_camera_session/tcp/head_tcp_pivot.json \
+  --states data/touch-validation/state-{01,02,03}.json \
+  --output data/head_camera_validation/head_recheck_validation.json
 ```
 
-检查 `touch-recheck/selection.png`，确认标号对应上次实际触碰的三个实体角点。新图只求一次棋盘 PnP 位姿，旧状态给出三个基座系触点坐标。如果棋盘在第一次触碰后移动过，或尖端安装改变，比较就无效。报告记录各点三维距离（米）；超过配置门限时程序以退出码 1 结束。首次触点流程见[移动头部标定指南](sp_vision/calibration.zh-CN.md)。
+检查 `head_recheck_selection.png`，确认标号对应上次实际触碰的三个实体角点。新图只求一次棋盘 PnP 位姿，旧状态给出三个基座系触点坐标。如果棋盘在第一次触碰后移动过，或尖端安装改变，比较就无效。报告记录各点三维距离（米）；超过配置门限时程序以退出码 1 结束。首次触点流程见本指南。
 
 ## 离线测试
 
 ```bash
-.venv/bin/python -m pytest -q sp_vision/test_calibration.py
+.venv/bin/python -m pytest -q test_calibration.py
 ```
 
-测试覆盖 7×10 SB 角点检测、hand-eye 数学方向、最终 URDF 的头部 FK、yaw 引起 pitch 原点移动而 pitch 不移动自身原点，以及 `assembly.urdf`/`scene.xml` 的头部相机链一致性。测试不连接相机或机器人。
+测试覆盖 7×10 SB 角点检测、hand-eye 数学方向、最终 URDF 的头部 FK、yaw 引起 pitch 原点移动而 pitch 不移动自身原点，以及 `configs/assembly.urdf`/`configs/scene.xml` 的头部相机链一致性。测试不连接相机或机器人。
 
 ## 常见失败
 

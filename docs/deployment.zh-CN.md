@@ -1,6 +1,6 @@
 # 在 DC 的 Ubuntu 20.04 设备上部署
 
-[English](deployment.md) · [工作流总览](../README.zh-CN.md) · [上一步：标定](calibration.zh-CN.md) · [下一步：预抓取](pregrasp.zh-CN.md)
+[English](deployment.md) · [工作流总览](../README.zh-CN.md) · [相机标定：sp_vision](../sp_vision/head_calib.zh-CN.md) · [下一步：预抓取](pregrasp.zh-CN.md)
 
 沿用 DC 控制主机的现有环境：**Ubuntu 20.04.6 LTS、x86_64、glibc 2.31、应用 Python 3.10 和 ROS Noetic**。这些基线信息已在设备上核实，无需升级到 Ubuntu 22.04。采集真实标定数据前，先安装项目环境。任务仍是**考虑物体几何的腕部预抓取**：接近经过审核的退让位姿并停止，不发送夹爪命令，也不执行接触或抓取动作。
 
@@ -14,6 +14,13 @@
 | ROS | Noetic，位于 `/opt/ros/noetic` | 加载该环境，用于相机消息和 RViz 发布。 |
 | RViz / robot_state_publisher | 1.14.20 / 1.15.2 | 使用已安装的可视化程序和匹配的机器人 URDF。 |
 | FoundationPose / SAM | 通过 RPC 端点配置的外部 GPU 服务 | 这些客户端不要求本地安装 CUDA。 |
+
+本仓库现在有两个互补的部分，不能互相替代：
+
+1. 完整部署包：提供机器人运行时、RGB-D 采集、FoundationPose/SAM 客户端、pregrasp 规划、RViz 审核、mock workflow 和受控执行入口。
+2. `sp_vision/` 独立标定单元：提供头部相机和右腕相机的棋盘格内参、PnP/手眼外参、TCP pivot 与独立触点验证。它可以离线运行，不依赖 `tron2_deployment`；实时采集时仍需要相机/机器人所在环境的适配器。
+
+因此正确顺序仍是：**部署软件环境 → mock 测试 → 准备现场 profile → 使用 `sp_vision` 标定 → 独立验证并回填/生成部署配置 → 连接真实观测与视觉服务 → pregrasp 规划和 RViz 审核 → 在明确监督门禁下执行**。独立 `sp_vision` 不是完整部署流程的替代品。
 
 选择解释器前，检查设备信息：
 
@@ -46,7 +53,7 @@ TRON2_PYTHON=/home/dc/mambaforge/bin/python3.10 bash scripts/install.sh
 
 安装脚本使用 `constraints-ubuntu20-py310.txt`，记录在实际 Ubuntu 20.04.6/glibc 2.31 主机的独立 Python 3.10 环境中验证过的依赖版本。更新版本后需重新运行测试和模拟工作流；MuJoCo 版本变化也可能改变编译模型哈希，需要重新审核模型和规划。
 
-标定时，`calibration-guide` 在端口 `8790` 启动独立的本地浏览器辅助页：预览标定板、采集样本，然后求解。只有显式点击页面操作后才会读取相机；使用 ROS 采集时，应在相机所需的 ROS 环境中启动。应用结果仍是显式 CLI 步骤。Matplotlib 用于 `calibration-report` 提供的可选离线诊断。参见[标定流程](calibration.zh-CN.md)。
+当前相机几何标定入口是 `sp_vision/head_calib.zh-CN.md` 和 `sp_vision/wrist_calib.zh-CN.md`。`sp_vision` 的结果不会自动启用真实执行，仍需完成独立验证、模型/profile 核对和执行门禁。审核通过后，将结果写入 `configs/` 下的部署 profile。旧标定流程和 ArUco 示例不再属于当前流程。
 
 软件包下载和隔离构建依赖默认使用 `https://pypi.org/simple`。安装脚本只为自身及子进程设置该源，不改写全局 pip 配置。如需显式指定另一个可用源，运行脚本时设置 `TRON2_PIP_INDEX_URL`。此行为遵循 [pip 文档中的配置优先级](https://pip.pypa.io/en/stable/topics/configuration/#precedence-override-order)。
 
@@ -62,13 +69,25 @@ TRON2_PYTHON=/home/dc/mambaforge/bin/python3.10 bash scripts/install.sh
 
 打开 `http://127.0.0.1:8787`。模拟配置使用简化模型、合成 RGB-D 和模拟反馈；其结果是软件验证证据，不是真机部署验收记录。在同一端口启动另一个 operator 前，先用 Ctrl-C 停止服务。
 
+## 先完成软件与 mock 验证
+
+这一步仍然需要，且不能被 `sp_vision` 替代：
+
+```bash
+.venv/bin/python -m pytest -q
+.venv/bin/tron2-deploy demo --output output/demo
+.venv/bin/tron2-deploy operator --profile configs/demo.json --mock
+```
+
+`pytest` 检查软件模块；`demo` 生成合成标定证据、计划和日志；`operator --mock` 检查采集→视觉估计→pregrasp→IK/碰撞检查→模拟执行的完整软件路径。它们都不证明真实相机、真实机器人、真实模型或真实 TCP 已经验收。打开 `http://127.0.0.1:8787`，验证后用 Ctrl-C 停止 mock 服务。
+
 ## 准备现场配置
 
 ```bash
 cp configs/robot.example.json configs/local-robot-seed.json
 ```
 
-示例有意保留 `null` 和 `REPLACE-...` 占位值，填写必需字段后才能加载。`configs/local*.json` 已被 Git 忽略。使用实际安装信息以及可用的出厂/实测相机标定填写初始配置，保持 `calibration.verified=false` 和 `execution.allow_real=false`。完成[标定](calibration.zh-CN.md)，生成 `configs/local-robot-calibrated.json`；复制模板或填写出厂参数本身不能独立验证相机到基座变换。
+示例有意保留 `null` 和 `REPLACE-...` 占位值，填写必需字段后才能加载。`configs/local*.json` 已被 Git 忽略。使用实际安装信息以及可用的出厂/实测相机标定填写初始配置，保持 `calibration.verified=false` 和 `execution.allow_real=false`。完成 `sp_vision` 的头部/腕部标定和独立触点验证后，再把已审核的矩阵、TCP 和标定身份写入部署 profile，生成 `configs/local-robot-calibrated.json`；复制模板或填写出厂参数本身不能独立验证相机到基座变换。`sp_vision` 结果 JSON 不是 operator profile，不能直接替代 profile。
 
 | 配置字段 | 必需的现场数据 |
 | --- | --- |
@@ -87,9 +106,9 @@ cp configs/robot.example.json configs/local-robot-seed.json
 
 几何变化后重新计算并审核模型。XML 必须包含真实碰撞几何；哈希确认选定模型的身份，不能证明其与实物一致。MuJoCo 以数值方式提供 FK/IK 和碰撞检查，不打开查看器。RViz 是唯一的图形轨迹审核步骤。
 
-## 连接头部 D435 RGB-D 相机
+## 连接头部 D455 RGB-D 相机
 
-实机头部/高位相机为 **Intel RealSense D435**，运行时名称为 `cam_high`，并通过 `/camera/top/...` 话题提供数据。真实采集适配器当前支持 **640×480 彩色与深度图像**。它使用配置中的出厂/实测深度内参和深度到彩色变换对齐深度，再同步去除 RGB 与对齐深度的畸变。保留正确的米制深度尺度，并针对这台实物 D435 验证对齐。
+实机头部/高位相机为 **Intel RealSense D455**，运行时名称为 `cam_high`，并通过 `/camera/top/...` 话题提供数据。真实采集适配器当前支持 **640×480 彩色与深度图像**。它使用配置中的出厂/实测深度内参和深度到彩色变换对齐深度，再同步去除 RGB 与对齐深度的畸变。保留正确的米制深度尺度，并针对这台实物 D455 验证对齐。
 
 使用 `camera.backend="ros"` 时，配置 `ros_master_uri`、可被机器人访问的工作站 `ros_ip`，以及彩色、深度和关节状态话题。模板中的话题为 `/camera/top/color/image_raw/compressed`、`/camera/top/depth/image_rect_raw` 和 `/joint_states`。使用 `camera.backend="bridge"` 时，配置 `bridge_host`、`bridge_path`，如需令牌则用 `token_env` 指定保存令牌的环境变量名。采用已部署 bridge 的实际路由及 TLS 设置；客户端默认值为 `127.0.0.1:18443` 和 `/bridge/ws`。
 
@@ -115,7 +134,7 @@ GPU 权重和物体 mesh 属于外部资源。`vision.mesh_id` 必须标识已�
 
 ## 启动真实观测和规划
 
-完成标定后，在配置好的相机环境中启动 operator：
+完成部署环境安装、`sp_vision` 标定、独立验证并生成已验收 profile 后，在配置好的相机环境中启动 operator：
 
 ```bash
 .venv/bin/tron2-deploy operator \

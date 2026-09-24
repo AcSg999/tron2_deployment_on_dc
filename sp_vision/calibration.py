@@ -112,6 +112,11 @@ def config_path(config, value) -> Path:
     return path.resolve()
 
 
+def package_path(name: str) -> Path:
+    """Resolve a bundled standalone asset relative to this calibration unit."""
+    return Path(__file__).resolve().parent / name
+
+
 def vector(text: str, count: int) -> np.ndarray:
     values = np.fromstring(text, sep=" ", dtype=float)
     if values.size == 0 and count:
@@ -560,16 +565,12 @@ def _import_capture_dependencies():
             Tron2HighRgbdConfig,
             Tron2RosHighRgbdCapture,
         )
-    except ImportError:
-        source = Path(__file__).resolve().parents[1] / "src"
-        if source.is_dir():
-            sys.path.insert(0, str(source))
-        from tron2_deployment.config import rigid
-        from tron2_deployment.rgbd import (
-            Tron2HighRgbdCapture,
-            Tron2HighRgbdConfig,
-            Tron2RosHighRgbdCapture,
-        )
+    except ImportError as error:
+        raise RuntimeError(
+            "head capture requires the configured camera adapter; offline "
+            "calibration commands do not require tron2_deployment. Install the "
+            "adapter in the runtime environment or provide pre-captured views."
+        ) from error
     return rigid, Tron2HighRgbdCapture, Tron2HighRgbdConfig, Tron2RosHighRgbdCapture
 
 
@@ -1353,46 +1354,51 @@ def validate_command(config, selection_path, side, state_paths, tcp_path, output
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True, type=Path, help="experiment JSON config")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(__file__).resolve().parent / "configs" / "head_config.example.json",
+        help="head calibration JSON config (defaults to this directory)",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     capture = commands.add_parser("capture", help="capture accepted moving-head checkerboard samples")
     add_board_arguments(capture)
-    capture.add_argument("--session", required=True, type=Path)
+    capture.add_argument("--session", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session")
     capture.add_argument("--count", type=int, default=40, help="views to capture in this run")
     capture.add_argument("--append", action="store_true", help="append views instead of replacing the session's views")
 
     intrinsics = commands.add_parser("intrinsics", help="fit camera intrinsics")
     add_board_arguments(intrinsics)
-    intrinsics.add_argument("--session", required=True, type=Path)
-    intrinsics.add_argument("--output", required=True, type=Path)
+    intrinsics.add_argument("--session", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session")
+    intrinsics.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session" / "head_intrinsics.json")
 
     extrinsics = commands.add_parser("extrinsics", help="fit camera-to-pitch transform")
     add_board_arguments(extrinsics)
-    extrinsics.add_argument("--session", required=True, type=Path)
-    extrinsics.add_argument("--intrinsics", required=True, type=Path)
-    extrinsics.add_argument("--output", required=True, type=Path)
+    extrinsics.add_argument("--session", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session")
+    extrinsics.add_argument("--intrinsics", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session" / "head_intrinsics.json")
+    extrinsics.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session" / "head_extrinsics.json")
 
     pivot = commands.add_parser("pivot", help="fit TCP tip from repeated fixed-point touches")
     pivot.add_argument("--side", choices=("left", "right"), required=True)
     pivot.add_argument("--states", required=True, nargs="+", type=Path)
-    pivot.add_argument("--output", required=True, type=Path)
+    pivot.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session" / "tcp" / "tcp_pivot.json")
 
     selection = commands.add_parser("select-validation", help="select three checkerboard touch points")
     add_board_arguments(selection)
     selection.add_argument("--frame", required=True, type=Path)
-    selection.add_argument("--intrinsics", required=True, type=Path)
-    selection.add_argument("--extrinsics", required=True, type=Path)
+    selection.add_argument("--intrinsics", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session" / "head_intrinsics.json")
+    selection.add_argument("--extrinsics", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_session" / "head_extrinsics.json")
     selection.add_argument("--corner", action="append", type=parse_corner, help="ROW,COLUMN; repeat exactly 3 times")
     selection.add_argument("--reuse-selection", type=Path, help="reuse ordered corners from an earlier touch selection")
-    selection.add_argument("--output", required=True, type=Path)
+    selection.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_validation" / "head_selection.json")
 
     validate = commands.add_parser("validate", help="compare predicted corners with touched TCP points")
-    validate.add_argument("--selection", required=True, type=Path)
+    validate.add_argument("--selection", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_validation" / "head_selection.json")
     validate.add_argument("--side", choices=("left", "right"), required=True)
     validate.add_argument("--states", required=True, nargs=3, type=Path)
     validate.add_argument("--tcp", type=Path, help="passed pivot JSON; otherwise use config value")
-    validate.add_argument("--output", required=True, type=Path)
+    validate.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "data" / "head_camera_validation" / "head_validation.json")
     return parser
 
 

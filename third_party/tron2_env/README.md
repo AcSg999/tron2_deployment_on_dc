@@ -188,7 +188,7 @@ Legacy RealSense mode:
 
 The policy image names are:
 
-- `cam_high` (head-mounted Intel RealSense D435)
+- `cam_high` (head-mounted Intel RealSense D455)
 - `cam_left_wrist`
 - `cam_right_wrist`
 

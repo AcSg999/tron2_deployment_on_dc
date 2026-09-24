@@ -70,7 +70,7 @@ def main() -> int:
     args = parser.parse_args()
     if not 0 < args.timeout <= 60:
         parser.error("--timeout must be between 0 and 60 seconds")
-    output = args.output or Path(__file__).parent / "data" / f"{args.camera}-camera-latest.jpg"
+    output = args.output or Path(__file__).resolve().parent / "data" / f"{args.camera}-camera-latest.jpg"
     try:
         payload = capture(args.host, TOPICS[args.camera], args.timeout)
         image = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)

@@ -183,7 +183,7 @@ Legacy RealSense 模式：
 
 policy 图像名为：
 
-- `cam_high`（头部安装的 Intel RealSense D435）
+- `cam_high`（头部安装的 Intel RealSense D455）
 - `cam_left_wrist`
 - `cam_right_wrist`
 

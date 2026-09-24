@@ -28,8 +28,8 @@ python -m tron2_deployment.cli operator \
 
 启用实机执行前，完成以下针对当前安装的检查：
 
-1. 确认只读 D435 与关节反馈新鲜、相机标识匹配、时钟同步，并保持记录的固定头部姿态。
-2. 完成[标定](calibration.zh-CN.md)，独立检查左右腕部/TCP 安装关系，并确认已注册物体几何和实测桌面坐标。
+1. 确认只读 D455 与关节反馈新鲜、相机标识匹配、时钟同步，并保持记录的固定头部姿态。
+2. 完成独立 [`sp_vision` 头部](../sp_vision/head_calib.zh-CN.md) 和[腕部](../sp_vision/wrist_calib.zh-CN.md) 标定指南，独立检查相机/TCP 安装关系，并确认已注册物体几何和实测桌面坐标。
 3. 检查数值模型与 RViz URDF 是否匹配实际机器人及被动附件。核对所有关节映射、限制、碰撞掩码/排除项，以及附件间隙。
 4. 在监督下验证控制器的短时保持行为和物理急停流程，记录实际行为、时序与故障处理结果。
 5. 实机运动验收先使用单腕并留出充分的物体间隙，再测试另一腕，最后测试双腕。每次都审核新生成的计划，并记录实测到达与中断结果。
@@ -45,7 +45,7 @@ python -m tron2_deployment.cli model-hash \
 
 完成相应物理检查后，将返回值记录到 `robot.model_hash`，保留验收证据，并准备 `configs/local-robot-accepted.json`，其中设置 `calibration.source="real"`、`calibration.verified=true`、`execution.allow_real=true` 和 `execution.hold_behavior_verified=true`。这些值用于记录已经完成的验收；修改它们本身不能证明物理检查通过。
 
-**在观测和规划之前冻结已验收配置。** 使用 `configs/local-robot-accepted.json` 重启工作台，重新获取观测、生成计划，并使用同一份已验收配置进行审核。规划后修改任何配置值都会改变配置哈希，使该计划失效。`apply-calibration` 会有意将实机执行重置为关闭。
+**在观测和规划之前冻结已验收配置。** 使用 `configs/local-robot-accepted.json` 重启工作台，重新获取观测、生成计划，并使用同一份已验收配置进行审核。规划后修改任何配置值都会改变配置哈希，使该计划失效。任何标定或 profile 更新都会将实机执行重置为关闭。
 
 ## 执行准确对应的已审核计划
 

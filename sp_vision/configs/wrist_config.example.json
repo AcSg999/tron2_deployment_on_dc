@@ -3,7 +3,7 @@
   "board": {"columns": 7, "rows": 10, "square_m": 0.021},
   "capture": {
     "host": "guest@10.192.1.4",
-    "state_profile": "../configs/local-robot-seed.json",
+    "state_profile": "robot_profile.example.json",
     "ros_domain_id": 0,
     "color_topic": "/camera/right/color/image_resized/compressed",
     "joint_topic": "/joint_states",
@@ -11,8 +11,8 @@
     "timeout_s": 8
   },
   "robot": {
-    "urdf": "../configs/assembly.urdf",
-    "model_xml": "../configs/scene.xml",
+    "urdf": "assembly.urdf",
+    "model_xml": "scene.xml",
     "base_link": "base_Link",
     "mount_link": "wrist_roll_R_Link",
     "camera_frame": "right_wrist_camera_color_optical_frame",

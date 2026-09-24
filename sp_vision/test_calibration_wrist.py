@@ -9,7 +9,7 @@ import calibration_wrist as wrist
 
 
 def _config():
-    return wrist.load_config(Path(__file__).parent / "wrist_config.example.json")
+    return wrist.load_config(Path(__file__).parent / "configs" / "wrist_config.example.json")
 
 
 def test_camera_is_fixed_to_roll_link_but_moves_relative_to_pitch_link():
