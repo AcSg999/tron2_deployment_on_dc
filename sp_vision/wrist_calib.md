@@ -27,7 +27,7 @@ Camera intrinsics do not depend on how many joints move. They must be calibrated
 cp configs/wrist_config.example.json configs/wrist_config.json
 ```
 
-The camera and `/joint_states` are ROS 2 Foxy topics on `guest@10.192.1.4`. The script connects by SSH and accepts an image only when its timestamp is within 100 ms of a fresh joint sample. The ROS 2 first four joints use `abad`, `hip`, `yaw`, `knee` names, while the URDF uses `proximal_pitch`, `proximal_roll`, `proximal_yaw`, `elbow`. The configured name list maps them into the **same 14-value order used by the controller `arm_q14` in head touch validation**. The names differ; the vector order does not. Capture saves both the named ROS 2 values and that ordered vector. Physical FK accuracy still needs the held-out board and independent touch checks.
+The reference live setup uses ROS 2 topics over SSH, but this integration is optional. Offline wrist solving only requires saved images and synchronized JSON containing `arm_q14`. The configured name list maps external joint names into the 14-value order expected by the bundled URDF. Physical FK accuracy still needs the held-out board and independent touch checks.
 
 ```bash
 .venv/bin/python calibration_wrist.py --config configs/wrist_config.json probe
@@ -54,16 +54,16 @@ In the capture window, `s` saves an accepted image, `f` reverses checkerboard co
 
 ## Calibrate the right-arm touch TCP
 
-To recalibrate the TCP, keep one rigid tip against one fixed point and read measured arm state at four clearly different wrist orientations. A dexterous fingertip is usable only if every finger joint remains at the same pose; the state files do not record finger joints. Move through the robot's existing reviewed interface and run one read-only state command after each pose settles:
+To recalibrate the TCP, keep one rigid tip against one fixed point and read measured arm state at four clearly different wrist orientations. A dexterous fingertip is usable only if every finger joint remains at the same pose; the state files do not record finger joints. Use the robot integration's read-only state command after each pose settles. The command is intentionally not part of the standalone package; only its resulting JSON files are consumed below:
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-03.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-04.json
 ```
 
@@ -97,11 +97,11 @@ Each completed `capture --count 1` replaces the previous validation image with a
 Inspect the numbers in `data/wrist_camera_validation/wrist_selection.png` against the physical corners. Keep the board fixed and use the same tip and finger pose as in TCP fitting. Touch corners 1, 2, and 3 in order and read state after each pose settles:
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_validation/state-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_validation/state-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_validation/state-03.json
 
 .venv/bin/python calibration_wrist.py --config configs/wrist_config.json \

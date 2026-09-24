@@ -16,7 +16,7 @@
 
 脚本通过 SSH 使用传感器数据 QoS 订阅 `sensor_msgs/msg/CompressedImage`，保存到 `data/right-camera-latest.jpg`。加 `--camera top` 可读取对应的头部彩色话题 `/camera/top/color/image_raw/compressed`。两种方式都只读取图像；单帧快照不包含深度或关节状态，也不是经过标定的观测结果。
 
-本目录本身就是一个可复制的独立标定单元。命令默认使用本目录下的配置、`configs/assembly.urdf`、`configs/scene.xml` 和 `configs/robot_profile.example.json`；数据、诊断图和结果统一写入本目录的 `data/`。离线求解不依赖 `tron2_deployment`，只有实时采集才需要可选的相机适配器。
+本目录本身就是一个可复制的独立标定单元。命令默认使用本目录下的配置、`configs/assembly.urdf` 和 `configs/scene.xml`；数据、诊断图和结果统一写入本目录的 `data/`。离线求解不依赖 `tron2_deployment`，实时采集只需要由外部集成提供相机适配器。
 
 本实验只标定：
 
@@ -66,11 +66,11 @@ cp configs/head_config.example.json configs/head_config.json
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-检查 `head_config.json` 中的路径。默认已经指向本目录内的：
+检查 `head_config.json` 中的路径。默认只指向本目录内的模型文件；实时采集适配器默认不配置，离线命令直接使用已采集的 `view-*` 目录。只有集成外部相机适配器时，才填写实时采集 profile：
 
 ```json
 {
-  "capture": {"profile": "robot_profile.example.json"},
+  "capture": {"profile": null},
   "robot": {
     "urdf": "assembly.urdf",
     "model_xml": "scene.xml",
@@ -207,13 +207,13 @@ T_base_camera(q_yaw, q_pitch)
 用同一个尖端抵住同一个固定点，改变至少四种明显不同的腕部朝向，每次稳定后只读取状态：
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-03.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-04.json
 ```
 
@@ -254,11 +254,11 @@ T_base_camera(q_yaw, q_pitch)
 先打开 `selection.png`，确认编号 1、2、3 与将要触碰的实体角点完全一致。保持棋盘和头部不动，通过机器人已有的受审核控制界面，让同一个已标定尖端依次接触 1、2、3，并按同一顺序读取状态：
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/touch-validation/state-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/touch-validation/state-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/touch-validation/state-03.json
 ```
 

@@ -577,6 +577,11 @@ def _import_capture_dependencies():
 def open_camera(config):
     """Open the existing bridge/ROS adapter without imposing fixed-head calibration."""
     capture_config = config.get("capture", {})
+    if not capture_config.get("profile"):
+        raise RuntimeError(
+            "live head capture is an optional integration; provide a camera "
+            "profile or use pre-captured view-* directories for standalone calibration"
+        )
     profile_path = config_path(config, capture_config["profile"])
     profile = read_json(profile_path)
     camera = profile["camera"]

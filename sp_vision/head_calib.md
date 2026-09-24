@@ -63,7 +63,7 @@ cp configs/head_config.example.json configs/head_config.json
 python -m pip install -r requirements.txt
 ```
 
-The example config references the bundled `configs/assembly.urdf`, `configs/scene.xml`, and `configs/robot_profile.example.json`. Relative paths are resolved from the config JSON.
+The example config references the bundled `configs/assembly.urdf` and `configs/scene.xml`. Live capture integration is intentionally unset by default; offline commands consume pre-captured `view-*` directories. A deployment-specific camera adapter may be supplied by an external integration.
 
 ## 1. Capture 40 views
 
@@ -137,13 +137,13 @@ Use a sharp point rigidly fixed relative to the wrist. With a dexterous hand, pr
 Touch one fixed point at four clearly different wrist orientations and read state after each settles:
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-03.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/tcp/pose-04.json
 
 .venv/bin/python calibration.py \
@@ -181,11 +181,11 @@ Select three spread-out, non-collinear corners. Omit `--corner` for click-and-sn
 Inspect `selection.png`. Keep the board fixed, touch labeled points 1, 2, and 3 in order, and read state in the same order. The head may move after imaging: prediction uses the image-synchronized `head_q2`, while later head motion is recorded only as a diagnostic and does not affect the error gate.
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/touch-validation/state-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/touch-validation/state-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/touch-validation/state-03.json
 
 .venv/bin/python calibration.py \

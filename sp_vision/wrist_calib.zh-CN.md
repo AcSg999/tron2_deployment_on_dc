@@ -27,7 +27,7 @@ T_wrist_pitch_camera(q_roll)
 cp configs/wrist_config.example.json configs/wrist_config.json
 ```
 
-相机和 `/joint_states` 位于 `guest@10.192.1.4` 的 ROS 2 Foxy 环境。脚本通过 SSH 连接，仅接收时间戳相差不超过 100 ms 的新图像与关节状态。ROS 2 的前四个关节名是 `abad`、`hip`、`yaw`、`knee`，URDF 对应位置写作 `proximal_pitch`、`proximal_roll`、`proximal_yaw`、`elbow`。配置中的名称列表把它们排成**头部触点验证读取的控制器 `arm_q14` 的同一 14 维顺序**：名称不同，向量顺序并未改变。采集同时保存 ROS 2 原始名称和值、以及排好顺序的向量。FK 的实物精度仍需用留出集棋盘图像和独立触碰检查。
+参考实时环境使用 SSH 上的 ROS 2 话题，但该集成是可选的。腕部离线求解只要求保存的图像和包含同步 `arm_q14` 的 JSON。配置的名称列表将外部关节名称映射为随附 URDF 要求的 14 值顺序。FK 的实物精度仍需用留出集棋盘图像和独立触碰检查。
 
 ```bash
 .venv/bin/python calibration_wrist.py --config configs/wrist_config.json probe
@@ -54,16 +54,16 @@ cp configs/wrist_config.example.json configs/wrist_config.json
 
 ## 标定右臂触点 TCP
 
-若要重新标定 TCP，用同一支相对右腕刚性不动的尖端抵住同一个固定点，在至少四个明显不同的腕部朝向下读取实测状态。灵巧手指尖只有在所有手指关节始终保持同一姿态时才能作为尖端；状态文件不记录手指关节。每次由已有的受审核界面调整姿态，稳定后运行一次只读状态命令：
+若要重新标定 TCP，用同一支相对右腕刚性不动的尖端抵住同一个固定点，在至少四个明显不同的腕部朝向下读取实测状态。灵巧手指尖只有在所有手指关节始终保持同一姿态时才能作为尖端；状态文件不记录手指关节。每次由已有的受审核界面调整姿态，稳定后使用机器人集成提供的只读状态命令。该命令不属于独立发布的 `sp_vision`，下面只消费它生成的 JSON 文件：
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-03.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_session/tcp/pose-04.json
 ```
 
@@ -97,11 +97,11 @@ cp configs/wrist_config.example.json configs/wrist_config.json
 先检查 `data/wrist_camera_validation/wrist_selection.png` 的编号是否对应将要触碰的实体角点。保持棋盘固定，用与 TCP 拟合时相同的尖端和手指姿态，按编号 1、2、3 触碰；每次稳定后读取一次状态：
 
 ```bash
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_validation/state-01.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_validation/state-02.json
-.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+robot-state-command \
   --output data/wrist_camera_validation/state-03.json
 
 .venv/bin/python calibration_wrist.py --config configs/wrist_config.json \

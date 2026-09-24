@@ -6,7 +6,7 @@
     "square_m": 0.021
   },
   "capture": {
-    "profile": "robot_profile.example.json"
+    "profile": null
   },
   "robot": {
     "urdf": "assembly.urdf",
