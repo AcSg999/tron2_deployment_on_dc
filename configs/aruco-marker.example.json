@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "kind": "marker",
-  "dictionary": "DICT_6X6_250",
-  "marker_length_m": 0.05,
-  "marker_id": 23,
-  "min_solution_ratio": 2.0
-}

@@ -20,7 +20,7 @@ from scipy.spatial.transform import Rotation
 import calibration as common
 
 
-DEFAULT_SESSION = Path(__file__).parent / "data" / "wrist_camera_session"
+DEFAULT_SESSION = Path(__file__).resolve().parent / "data" / "wrist_camera_session"
 
 
 def load_config(path: Path) -> dict:
@@ -213,11 +213,14 @@ def capture_command(config: dict, session: Path, count: int, append: bool) -> No
 
 def vendor_arm_state(config: dict) -> list[float]:
     """Read the same controller arm_q14 used by the head touch validation."""
-    source = Path(__file__).resolve().parents[1] / "src"
-    if str(source) not in sys.path:
-        sys.path.insert(0, str(source))
-    from tron2_deployment.config import load_profile
-    from tron2_deployment.robot import WebsocketRobot
+    try:
+        from tron2_deployment.config import load_profile
+        from tron2_deployment.robot import WebsocketRobot
+    except ImportError as error:
+        raise RuntimeError(
+            "controller state probing requires the optional tron2_deployment "
+            "adapter; offline wrist calibration does not."
+        ) from error
 
     profile = load_profile(common.config_path(config, config["capture"]["state_profile"]))
     adapter = WebsocketRobot(profile)
@@ -455,7 +458,7 @@ def validate_command(config, selection_path, side, state_paths, tcp_path, output
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--config", type=Path, default=Path(__file__).parent / "wrist_config.example.json")
+    result.add_argument("--config", type=Path, default=Path(__file__).resolve().parent / "configs" / "wrist_config.example.json")
     commands = result.add_subparsers(dest="command", required=True)
     probe = commands.add_parser("probe", help="save one camera frame and named ROS 2 joint state")
     probe.add_argument("--output", type=Path, default=DEFAULT_SESSION / "state-probe.json")
@@ -467,29 +470,29 @@ def parser() -> argparse.ArgumentParser:
     intrinsic = commands.add_parser("intrinsics")
     common.add_board_arguments(intrinsic)
     intrinsic.add_argument("--session", type=Path, default=DEFAULT_SESSION)
-    intrinsic.add_argument("--output", type=Path, default=DEFAULT_SESSION / "intrinsics.json")
+    intrinsic.add_argument("--output", type=Path, default=DEFAULT_SESSION / "wrist_intrinsics.json")
     extrinsic = commands.add_parser("extrinsics")
     common.add_board_arguments(extrinsic)
     extrinsic.add_argument("--session", type=Path, default=DEFAULT_SESSION)
-    extrinsic.add_argument("--intrinsics", type=Path, default=DEFAULT_SESSION / "intrinsics.json")
-    extrinsic.add_argument("--output", type=Path, default=DEFAULT_SESSION / "extrinsics.json")
+    extrinsic.add_argument("--intrinsics", type=Path, default=DEFAULT_SESSION / "wrist_intrinsics.json")
+    extrinsic.add_argument("--output", type=Path, default=DEFAULT_SESSION / "wrist_extrinsics.json")
     pivot = commands.add_parser("pivot", help="fit a right-arm TCP tip from fixed-point touch states")
     pivot.add_argument("--states", required=True, nargs="+", type=Path)
-    pivot.add_argument("--output", type=Path, default=DEFAULT_SESSION / "tcp" / "result.json")
+    pivot.add_argument("--output", type=Path, default=DEFAULT_SESSION / "tcp" / "wrist_tcp_pivot.json")
     selection = commands.add_parser("select-validation")
     common.add_board_arguments(selection)
     selection.add_argument("--frame", required=True, type=Path)
-    selection.add_argument("--intrinsics", type=Path, default=DEFAULT_SESSION / "intrinsics.json")
-    selection.add_argument("--extrinsics", type=Path, default=DEFAULT_SESSION / "extrinsics.json")
+    selection.add_argument("--intrinsics", type=Path, default=DEFAULT_SESSION / "wrist_intrinsics.json")
+    selection.add_argument("--extrinsics", type=Path, default=DEFAULT_SESSION / "wrist_extrinsics.json")
     selection.add_argument("--corner", action="append", type=common.parse_corner)
     selection.add_argument("--reuse-selection", type=Path)
-    selection.add_argument("--output", type=Path, default=DEFAULT_SESSION / "selection.json")
+    selection.add_argument("--output", type=Path, default=DEFAULT_SESSION / "wrist_selection.json")
     validation = commands.add_parser("validate")
-    validation.add_argument("--selection", type=Path, default=DEFAULT_SESSION / "selection.json")
+    validation.add_argument("--selection", type=Path, default=DEFAULT_SESSION / "wrist_selection.json")
     validation.add_argument("--side", choices=("left", "right"), default="right")
     validation.add_argument("--states", required=True, type=Path, nargs=3)
     validation.add_argument("--tcp", type=Path)
-    validation.add_argument("--output", type=Path, default=DEFAULT_SESSION / "report.json")
+    validation.add_argument("--output", type=Path, default=DEFAULT_SESSION / "wrist_validation.json")
     return result
 
 

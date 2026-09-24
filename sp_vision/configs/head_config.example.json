@@ -6,11 +6,11 @@
     "square_m": 0.021
   },
   "capture": {
-    "profile": "../configs/local-robot-seed.json"
+    "profile": "robot_profile.example.json"
   },
   "robot": {
-    "urdf": "../configs/assembly.urdf",
-    "model_xml": "../configs/scene.xml",
+    "urdf": "assembly.urdf",
+    "model_xml": "scene.xml",
     "base_link": "base_Link",
     "pitch_link": "head_pitch_Link",
     "camera_frame": "head_camera_color_optical_frame",

@@ -45,7 +45,7 @@ python -m tron2_deployment.cli operator \
 
 Open `http://127.0.0.1:8787/`. Startup reads configuration; an explicit operation triggers camera, vision, or state access.
 
-1. Capture a frame from the head-mounted D435 RGB-D camera and draw a box around the configured object.
+1. Capture a frame from the head-mounted D455 RGB-D camera and draw a box around the configured object.
 2. Generate the SAM mask, inspect it, then run FoundationPose.
 3. Select left, right, or both wrists. Click **Read state and plan** (`读取状态并规划`); the service obtains fresh measured arm/head state before planning.
 4. Inspect the returned checks and targets. The server saves an immutable plan in `output/pregrasp_<id>.json`, displays its actual path and RViz command, and allows a JSON download.

@@ -1,6 +1,6 @@
 # Deployment on the DC Ubuntu 20.04 device
 
-[简体中文](deployment.zh-CN.md) · [Workflow overview](../README.md) · [Previous: calibration](calibration.md) · [Next: pregrasp](pregrasp.md)
+[简体中文](deployment.zh-CN.md) · [Workflow overview](../README.md) · [Camera calibration: sp_vision](../sp_vision/head_calib.md) · [Next: pregrasp](pregrasp.md)
 
 Use the existing DC control host's environment: **Ubuntu 20.04.6 LTS, x86_64, glibc 2.31, application Python 3.10 and ROS Noetic**. This baseline was checked on the device; an Ubuntu 22.04 upgrade is not required. Install the project environment before collecting live calibration. The task remains **object-aware wrist pregrasp**: approach a reviewed standoff pose and stop, with no gripper commands or contact/grasp action.
 
@@ -14,6 +14,13 @@ Use the existing DC control host's environment: **Ubuntu 20.04.6 LTS, x86_64, gl
 | ROS | Noetic at `/opt/ros/noetic` | Source its environment for camera messages and RViz publishing. |
 | RViz / robot_state_publisher | 1.14.20 / 1.15.2 | Use the installed visualization executables and matching robot URDF. |
 | FoundationPose / SAM | External GPU services configured through RPC endpoints | No local CUDA installation is required for these clients. |
+
+This repository now contains two complementary parts, not substitutes:
+
+1. The full deployment package provides the robot runtime, RGB-D acquisition, FoundationPose/SAM clients, pregrasp planning, RViz review, mock workflow and gated execution entry point.
+2. `sp_vision/` is a standalone calibration unit for head/wrist camera intrinsics, PnP/hand-eye extrinsics, TCP pivot and independent touch validation. It runs offline without `tron2_deployment`; live capture still needs the camera/robot adapter environment.
+
+The correct order remains: **install deployment software → run mock tests → prepare the site profile → calibrate with `sp_vision` → independently validate and feed reviewed results into the deployment profile → connect real observation and vision services → plan and review pregrasp → execute only behind the explicit supervision gates**. Standalone `sp_vision` does not replace the deployment workflow.
 
 Check the device before selecting the interpreter:
 
@@ -46,7 +53,7 @@ Install only missing OS packages. `TRON2_PYTHON` selects an existing Python 3.10
 
 The installer uses `constraints-ubuntu20-py310.txt`, recording dependency versions tested on the actual Ubuntu 20.04.6/glibc 2.31 host in an isolated Python 3.10 environment. Updating these versions requires rerunning the tests and mock workflow; a changed MuJoCo version can also change the compiled model hash and requires renewed model/plan review.
 
-For calibration, `calibration-guide` starts a separate local browser helper on port `8790`: preview the board, capture samples, then solve. It reads the camera only after an explicit browser action; start it with the camera's ROS environment when using ROS capture. Applying results remains an explicit CLI step. Matplotlib supports optional offline diagnostics through `calibration-report`. See the [calibration workflow](calibration.md).
+The current camera-geometry entry points are [the head guide](../sp_vision/head_calib.md) and [the wrist guide](../sp_vision/wrist_calib.md). `sp_vision` results do not enable real execution automatically; independent validation, model/profile review and execution gates remain required. Write accepted values into the deployment profiles under `configs/`. The old calibration workflow and ArUco examples are no longer part of the current path.
 
 Package downloads and isolated build dependencies use `https://pypi.org/simple` by default. The installer sets this index only for its own process and children; it does not rewrite your global pip configuration. To select another working index explicitly, set `TRON2_PIP_INDEX_URL` when running the script. This uses [pip's documented configuration precedence](https://pip.pypa.io/en/stable/topics/configuration/#precedence-override-order).
 
@@ -62,13 +69,25 @@ Verify the software with synthetic inputs:
 
 Open `http://127.0.0.1:8787`. The mock profile uses a toy model, synthetic RGB-D and simulated feedback; its result is software evidence, not a deployment acceptance record. Stop the service with Ctrl-C before starting another operator on the same port.
 
+## Run software and mock verification first
+
+This step is still required and is not replaced by `sp_vision`:
+
+```bash
+.venv/bin/python -m pytest -q
+.venv/bin/tron2-deploy demo --output output/demo
+.venv/bin/tron2-deploy operator --profile configs/demo.json --mock
+```
+
+`pytest` checks the software modules; `demo` creates synthetic calibration evidence, a plan and logs; `operator --mock` checks the capture → vision estimate → pregrasp → IK/collision → simulated execution path. None of these proves that a real camera, robot, model or TCP is accepted. Open `http://127.0.0.1:8787`, then stop the mock service with Ctrl-C.
+
 ## Prepare the installation profile
 
 ```bash
 cp configs/robot.example.json configs/local-robot-seed.json
 ```
 
-The example intentionally contains `null` and `REPLACE-...` placeholders. It is not loadable until the required fields are filled. `configs/local*.json` is ignored by Git. Populate the seed with the actual installation and available factory/measured camera calibration, keeping `calibration.verified=false` and `execution.allow_real=false`. Complete [calibration](calibration.md) to produce `configs/local-robot-calibrated.json`; copying the template or entering factory values does not independently verify the camera-to-base transform.
+The example intentionally contains `null` and `REPLACE-...` placeholders. It is not loadable until the required fields are filled. `configs/local*.json` is ignored by Git. Populate the seed with the actual installation and available factory/measured camera calibration, keeping `calibration.verified=false` and `execution.allow_real=false`. After completing the `sp_vision` head/wrist calibration and independent touch validation, feed the reviewed matrices, TCP values and calibration identity into the deployment profile to produce `configs/local-robot-calibrated.json`; copying the template or entering factory values does not independently verify the camera-to-base transform. `sp_vision` result JSON is not an operator profile and cannot replace it directly.
 
 | Profile fields | Required installation data |
 | --- | --- |
@@ -87,9 +106,9 @@ Paths in the profile are relative to the profile file; absolute paths and enviro
 
 Recompute and review the model after geometry changes. The XML must include the real collision geometry; a hash confirms the selected model identity, not its physical accuracy. Numerical MuJoCo supplies FK/IK and collision checks without a viewer. RViz is the only graphical trajectory review step.
 
-## Connect the head-mounted D435 RGB-D camera
+## Connect the head-mounted D455 RGB-D camera
 
-The installed head/top camera is an **Intel RealSense D435**, exposed as `cam_high` and through `/camera/top/...` topics. The real capture adapter currently supports **640×480 color and depth**. It aligns depth using the profile's factory/measured depth intrinsics and depth-to-color transform, then undistorts RGB and aligned depth together. Retain the correct metric depth scale and validate alignment for this physical D435.
+The installed head/top camera is an **Intel RealSense D455**, exposed as `cam_high` and through `/camera/top/...` topics. The real capture adapter currently supports **640×480 color and depth**. It aligns depth using the profile's factory/measured depth intrinsics and depth-to-color transform, then undistorts RGB and aligned depth together. Retain the correct metric depth scale and validate alignment for this physical D455.
 
 For `camera.backend="ros"`, configure `ros_master_uri`, the workstation's reachable `ros_ip`, and the color, depth and joint-state topics. The template's topics are `/camera/top/color/image_raw/compressed`, `/camera/top/depth/image_rect_raw` and `/joint_states`. For `camera.backend="bridge"`, configure `bridge_host`, `bridge_path` and, if required, `token_env` naming the environment variable holding the token. Use the deployed bridge's actual route and TLS settings; the client defaults are `127.0.0.1:18443` and `/bridge/ws`.
 
@@ -120,7 +139,7 @@ GPU weights and object meshes are external assets. `vision.mesh_id` must identif
 
 ## Start real observation and planning
 
-After calibration, start the operator in the configured camera environment:
+After installing the deployment environment, completing `sp_vision` calibration and independent validation, and producing an accepted profile, start the operator in the configured camera environment:
 
 ```bash
 .venv/bin/tron2-deploy operator \

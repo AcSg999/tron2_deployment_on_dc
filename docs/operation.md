@@ -28,8 +28,8 @@ Capture, segment, estimate, and plan. Review the displayed plan in RViz, then ch
 
 Complete these installation-specific checks before enabling real execution:
 
-1. Confirm fresh, read-only D435 and joint feedback, matching camera identity, synchronized clocks, and the recorded fixed head pose.
-2. Complete [calibration](calibration.md), independently check both wrist/TCP mounts, and confirm the registered object geometry and measured table frame.
+1. Confirm fresh, read-only D455 and joint feedback, matching camera identity, synchronized clocks, and the recorded fixed head pose.
+2. Complete the standalone [`sp_vision` head](../sp_vision/head_calib.md) and [wrist](../sp_vision/wrist_calib.md) calibration guides, independently check the camera/TCP mounts, and confirm the registered object geometry and measured table frame.
 3. Check that the numeric model and RViz URDF match the installed robot and passive attachments. Verify all joint mappings, limits, collision masks/exclusions, and attachment clearances.
 4. Verify the controller's bounded hold behavior and physical emergency-stop procedure under supervision. Record the observed behavior, timing, and failure handling.
 5. Start physical motion acceptance with one wrist and generous object clearance; repeat for the other wrist, then use both. Review each newly generated plan and record measured arrival and interruption results.
@@ -45,7 +45,7 @@ python -m tron2_deployment.cli model-hash \
 
 After the relevant physical checks, record the returned value in `robot.model_hash`, retain the acceptance evidence, and prepare `configs/local-robot-accepted.json` with `calibration.source="real"`, `calibration.verified=true`, `execution.allow_real=true`, and `execution.hold_behavior_verified=true`. These values record completed acceptance; editing them cannot establish that the physical checks passed.
 
-**Freeze the accepted profile before observation and planning.** Restart the workbench with `configs/local-robot-accepted.json`, acquire a new observation, generate a new plan, and review it using the same accepted profile. Changing any profile value after planning changes the profile hash and invalidates that plan. `apply-calibration` intentionally resets real execution to disabled.
+**Freeze the accepted profile before observation and planning.** Restart the workbench with `configs/local-robot-accepted.json`, acquire a new observation, generate a new plan, and review it using the same accepted profile. Changing any profile value after planning changes the profile hash and invalidates that plan. Any calibration or profile update resets real execution to disabled.
 
 ## Execute the exact reviewed plan
 
