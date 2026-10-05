@@ -3,7 +3,7 @@
   "board": {"columns": 7, "rows": 10, "square_m": 0.021},
   "capture": {
     "host": "guest@10.192.1.4",
-    "state_profile": "robot_profile.example.json",
+    "state_profile": null,
     "ros_domain_id": 0,
     "color_topic": "/camera/right/color/image_resized/compressed",
     "joint_topic": "/joint_states",

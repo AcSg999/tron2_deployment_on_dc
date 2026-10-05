@@ -213,6 +213,11 @@ def capture_command(config: dict, session: Path, count: int, append: bool) -> No
 
 def vendor_arm_state(config: dict) -> list[float]:
     """Read the same controller arm_q14 used by the head touch validation."""
+    if not config["capture"].get("state_profile"):
+        raise RuntimeError(
+            "controller state probing is optional; provide a state profile or "
+            "supply synchronized arm_q14 state JSON files"
+        )
     try:
         from tron2_deployment.config import load_profile
         from tron2_deployment.robot import WebsocketRobot
