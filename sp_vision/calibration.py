@@ -767,7 +767,7 @@ def intrinsics_command(config, session: Path, output: Path):
             rejected.append({"view": path.name, "reason": "corner detection quality", "metrics": metrics})
     if len(accepted) < minimum:
         raise ValueError(f"only {len(accepted)} training views passed detection; require {minimum}")
-    threshold = float(config.get("quality", {}).get("max_intrinsic_view_rms_px", 1.5))
+    threshold = float(config.get("quality", {}).get("max_intrinsic_view_rms_px", 0.4))
     while True:
         fit = _camera_fit(
             [object_template.copy() for _ in accepted],

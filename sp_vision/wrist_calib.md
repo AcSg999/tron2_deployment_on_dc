@@ -30,7 +30,7 @@ cp configs/wrist_config.example.json configs/wrist_config.json
 The camera and `/joint_states` are ROS 2 Foxy topics on `guest@10.192.1.4`. The script connects by SSH and accepts an image only when its timestamp is within 100 ms of a fresh joint sample. The ROS 2 first four joints use `abad`, `hip`, `yaw`, `knee` names, while the URDF uses `proximal_pitch`, `proximal_roll`, `proximal_yaw`, `elbow`. The configured name list maps them into the **same 14-value order used by the controller `arm_q14` in head touch validation**. The names differ; the vector order does not. Capture saves both the named ROS 2 values and that ordered vector. Physical FK accuracy still needs the held-out board and independent touch checks.
 
 ```bash
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json probe
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json probe
 ```
 
 `probe` saves a synchronized image and named joint JSON under `data/wrist_camera_session/` without requiring a checkerboard. It also reads the same controller `arm_q14` used by head validation before and after the image, then reports `mapping_check.passed` only if the arm stayed still and each mapped ROS 2 value agrees within 0.005 rad. A failed or unavailable controller comparison does not mean image capture failed. The image/joint `state_skew_ms` is a separate check with a 100 ms limit.
@@ -40,21 +40,47 @@ Rigidly fix a flat 7×10 inner-corner checkerboard with measured 0.021 m squares
 ## Capture, fit and check
 
 ```bash
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   capture --session data/wrist_camera_session --count 40
 
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   intrinsics --session data/wrist_camera_session
 
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   extrinsics --session data/wrist_camera_session
 ```
 
 In the capture window, `s` saves an accepted image, `f` reverses checkerboard corner order by 180°, `r` or Space reacquires, and `q` quits. Without `--append`, a complete capture replaces the session's previous `view-*` images; quitting early preserves them. Use `--append` to add views. The intrinsic fit reuses the head workflow's checkerboard detection, distortion fit, quality limits and holdout split. The extrinsic fit reuses its PnP and hand-eye solver, but uses synchronized `T_base_wrist_roll(q)` for every view. It checks the nominal URDF/MJCF camera chain and evaluates held-out views against the board pose fitted from training views. Require `passed: true`; also inspect `training`, `holdout`, rejected views, and deviation from the nominal mount.
 
+### Meaning of the extrinsic summary parameters
+
+The terminal summary for the current extrinsic calibration contains:
+
+```json
+"max_training_mm": 7.555524738640365,
+"max_holdout_mm": 10.41927581138533,
+"mount_rotation_span_deg": 176.67627544117101
+```
+
+- `max_training_mm`: the largest checkerboard translation residual across all training views, in millimeters. The training views participate in solving `T_wrist_roll_camera` and `T_base_board`. For every view, the program compares the board position composed from FK, the hand-eye extrinsic, and the PnP result against the fixed `T_base_board`, then takes the largest translation-difference norm. Lower is better and indicates stronger internal consistency in the training set; here it is about **7.56 mm**.
+- `max_holdout_mm`: the largest checkerboard translation residual across all holdout views, computed in the same way and expressed in millimeters. Holdout views do not participate in the hand-eye extrinsic fit, so this value checks consistency on images that were not used for fitting; here it is about **10.42 mm**.
+- `mount_rotation_span_deg`: the orientation coverage of the wrist mount chain across the training views, in degrees. Specifically, it is the largest relative rotation angle between the `T_base_wrist_roll` rotation of the first training view and that of every other training view. It measures pose excitation, not calibration error or the travel of any single wrist joint; here it is about **176.68°**.
+
+The first two values are both below the current **15 mm** threshold corresponding to `max_board_residual_m: 0.015`, and the rotation span is above the minimum `min_mount_rotation_span_deg: 20`. These three numbers alone do not establish a passing calibration. Overall `passed` also requires every view's rotation residual to be no more than **2°**, at least one valid holdout view, successful optimization, and sampling that is not nearly limited to rotation about a single axis.
+
 ## Calibrate the right-arm touch TCP
 
 To recalibrate the TCP, keep one rigid tip against one fixed point and read measured arm state at four clearly different wrist orientations. A dexterous fingertip is usable only if every finger joint remains at the same pose; the state files do not record finger joints. Move through the robot's existing reviewed interface and run one read-only state command after each pose settles:
+
+Before collecting the four TCP poses, use the following read-only commands to obtain one sample of the current live head `q2`:
+
+```bash
+../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+  --output data/wrist_camera_session/tcp/current-state.json
+../.venv/bin/python -c 'import json, pathlib; p = pathlib.Path("data/wrist_camera_session/tcp/current-state.json"); print(json.loads(p.read_text())["head_q2"])'
+```
+
+The `head_q2` order is `[head_pitch_Joint, head_yaw_Joint]`, in radians. Rerun the first command to read a fresh state. It saves the complete `arm_q14` and `head_q2` state and does not send any motion command.
 
 ```bash
 .venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
