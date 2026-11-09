@@ -1,10 +1,14 @@
-# 左/右腕相机标定
+# 右腕相机标定
 
-[English](README_wrist.md)
+[English](wrist_calib.md)
 
 这是右手腕彩色相机的独立只读实验。从本目录运行命令，图像和结果保存于 `data/wrist_camera_session/`；该目录不会进入 Git。模型文件随本目录提供，离线标定不再依赖外部仓库。程序不驱动机器人。
 
 控制器负载辨识值不参与这项几何标定。若用拖动示教调整手臂，应单独在控制器中设置并回读当前负载，不要将这些值写入相机配置。
+
+## 标定参数发布
+
+本地最新头部结果为 `data/head-camera-session/intrinsics.json` 和 `extrinsics.json`（2026-09-23）；最新右腕结果为 `data/wrist_camera_session/wrist_intrinsics.json` 和 `wrist_extrinsics.json`（2026-10-05）。其逐字节副本与来源/校验值清单已于 2026-10-08 发布到专门的[相机标定仓库](https://github.com/zengxiong111/tron2_camera_calibration/tree/main/calibration_results)。本仓库的原始采集和本机配置仍由 Git 忽略。四份拟合结果均记录 `passed: true`，但独立触点验证仍为 `passed: false`（头部最大 14.42 mm，右腕 12.26 mm，阈值 10 mm）。发布说明记录坐标系约定、图像尺寸和历史头部模型限制；发布不代表硬件验收通过。
 
 ## 坐标系与几何关系
 

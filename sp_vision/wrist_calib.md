@@ -6,6 +6,10 @@ This is a separate, read-only experiment for the right wrist color camera. Run c
 
 Controller payload identification is not an input to this geometric calibration. If you use drag teaching to position the arm, configure and read back the current payload in the controller separately; keep those values out of the camera configuration.
 
+## Calibration parameter publication
+
+The latest local head results are `data/head-camera-session/intrinsics.json` and `extrinsics.json` (2026-09-23); the latest right wrist results are `data/wrist_camera_session/wrist_intrinsics.json` and `wrist_extrinsics.json` (2026-10-05). Their byte-preserving copies and source/hash manifest were published on 2026-10-08 to the dedicated [camera calibration repository](https://github.com/zengxiong111/tron2_camera_calibration/tree/main/calibration_results). Raw captures and local profiles stay Git-ignored here. All four fit results record `passed: true`, but independent touch validation remains `passed: false` (head maximum 14.42 mm, right wrist 12.26 mm, limit 10 mm). The published guide documents frame conventions, image size and the historical head-model limitation; publishing does not establish hardware acceptance.
+
 ## Frames and geometry
 
 In `configs/assembly.urdf`, the camera bracket is fixed to `wrist_roll_R_Link`. `wrist_roll_R_Joint` is movable between that link and `wrist_pitch_R_Link`: its local X axis is orthogonal to the pitch joint's local Y axis. The constant to solve is therefore **`T_wrist_roll_camera`**, from `right_wrist_camera_color_optical_frame` into `wrist_roll_R_Link`. The URDF value is a nominal starting reference, not a measured calibration. At any measured arm state:

@@ -4,6 +4,10 @@
 
 Controller payload identification (`m`, `mc_x`, `mc_y`, `mc_z`) is not used by this image, joint-angle, and FK calibration. It does not belong in this experiment's JSON or the URDF camera transform. If drag teaching is used to position the robot, configure the current payload separately in the robot controller and confirm its readback before that operation.
 
+## Calibration parameter publication
+
+The latest local head results are `data/head-camera-session/intrinsics.json` and `extrinsics.json` (2026-09-23); the latest right wrist results are `data/wrist_camera_session/wrist_intrinsics.json` and `wrist_extrinsics.json` (2026-10-05). Their byte-preserving copies and source/hash manifest were published on 2026-10-08 to the dedicated [camera calibration repository](https://github.com/zengxiong111/tron2_camera_calibration/tree/main/calibration_results). Raw captures and local profiles stay Git-ignored here. All four fit results record `passed: true`, but independent touch validation remains `passed: false` (head maximum 14.42 mm, right wrist 12.26 mm, limit 10 mm). The published guide documents frame conventions, image size and the historical head-model limitation; publishing does not establish hardware acceptance.
+
 ## One-frame ROS 2 camera check
 
 This directory is a standalone calibration unit. Run commands from `sp_vision/`; all default configs, model assets, data, diagnostics, and result JSON files stay in this directory. The bundled `configs/assembly.urdf` and `configs/scene.xml` are the model snapshots used by the offline solver. Hardware adapters are optional and are only needed for live capture.

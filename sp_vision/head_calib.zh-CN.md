@@ -6,6 +6,10 @@
 
 控制器负载辨识值（`m`、`mc_x`、`mc_y`、`mc_z`）不参与本实验的图像、关节角和 FK 标定，不应填入本实验 JSON 或 URDF 相机变换。若使用拖动示教调整机器人姿态，应在该操作前单独为控制器设置当前负载并回读确认。
 
+## 标定参数发布
+
+本地最新头部结果为 `data/head-camera-session/intrinsics.json` 和 `extrinsics.json`（2026-09-23）；最新右腕结果为 `data/wrist_camera_session/wrist_intrinsics.json` 和 `wrist_extrinsics.json`（2026-10-05）。其逐字节副本与来源/校验值清单已于 2026-10-08 发布到专门的[相机标定仓库](https://github.com/zengxiong111/tron2_camera_calibration/tree/main/calibration_results)。本仓库的原始采集和本机配置仍由 Git 忽略。四份拟合结果均记录 `passed: true`，但独立触点验证仍为 `passed: false`（头部最大 14.42 mm，右腕 12.26 mm，阈值 10 mm）。发布说明记录坐标系约定、图像尺寸和历史头部模型限制；发布不代表硬件验收通过。
+
 ## ROS 2 相机单帧检查
 
 实机彩色相机话题运行在 `guest@10.192.1.4` 的 ROS 2 Foxy 中，本机 ROS 1 Noetic 的 `rostopic` 无法发现这些话题。从仓库根目录运行以下命令，读取 `/camera/right/color/image_resized/compressed` 的右手腕彩色图像：
