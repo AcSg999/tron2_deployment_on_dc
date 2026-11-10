@@ -1,6 +1,8 @@
 # DC 上的 TRON2 部署
 
 [English](README.md)
+# 后续更新已移至另一仓库，本仓库也可以使用，只不过可读性较差，另一仓库完全仅包含标定流程
+[新标定仓库](https://github.com/zengxiong111/tron2_camera_calibration/blob/main/README.zh-CN.md)
 
 本仓库提供独立的**基于物体位姿的双腕预抓取**部署工具：定位物体，选择可达的接近方向与腕部姿态，在 RViz 中审核轨迹，运动到预留间距处并停止。应用不发送夹爪指令，也不执行接触或抓取动作。
 
