@@ -2,6 +2,9 @@
 
 [简体中文](README.zh-CN.md)
 
+# new updates have moved to another repository, this repository can also be used, but with poorer readability. The other repository contains only the calibration workflow.
+[new repo](https://github.com/zengxiong111/tron2_camera_calibration/blob/main/README.zh-CN.md)
+
 Independent deployment tools for **object-aware dual-wrist pregrasp**: locate an object, choose a reachable approach and wrist orientation, preview the trajectory in RViz, move to the standoff pose, and stop. There are no gripper commands or contact/grasp actions in this application.
 
 The installed head/top RGB-D camera is an **Intel RealSense D455**. The runtime name `cam_high` and `/camera/top/...` topics refer to this D455.
