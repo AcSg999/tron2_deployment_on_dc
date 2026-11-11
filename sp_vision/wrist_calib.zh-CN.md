@@ -28,16 +28,42 @@ T_wrist_pitch_camera(q_roll)
 ## 准备配置并核对关节映射
 
 ```bash
-cp configs/wrist_config.example.json configs/wrist_config.json
+cp -n configs/wrist_config.example.json configs/wrist_config.json
 ```
 
-参考实时环境使用 SSH 上的 ROS 2 话题，但该集成是可选的。腕部离线求解只要求保存的图像和包含同步 `arm_q14` 的 JSON。配置的名称列表将外部关节名称映射为随附 URDF 要求的 14 值顺序。FK 的实物精度仍需用留出集棋盘图像和独立触碰检查。
+保留已有本机配置。示例默认使用 `capture.backend: "ssh"`，通过 SSH 读取 ROS 2 话题。若要使用机器人自带 LimX Studio 的相机 WebSocket 桥接、绕过 SSH，将 `configs/wrist_config.json` 中的 `capture` 对象替换为：
+
+```json
+{
+  "backend": "bridge",
+  "bridge_profile": "../../configs/local-robot-seed.json",
+  "state_profile": "../../configs/local-robot-seed.json",
+  "ros_domain_id": 0,
+  "color_topic": "/camera/right/color/image_resized/compressed",
+  "joint_topic": "/joint_states",
+  "max_state_skew_ms": 100,
+  "timeout_s": 8
+}
+```
+
+profile 路径相对于配置文件解析。本机已有上述本地 profile；其他机器应使用自己的实际 profile。桥接集成需要父仓库的 `tron2_deployment` 软件包及其 `bridge` 可选依赖。它读取 `camera.bridge_host`、`bridge_path`、TLS 和令牌设置，但明确订阅上面的腕部话题。浏览器无需一直打开。桥接失败会直接报错，不会退回 SSH。控制器状态比较仍使用已有的只读 WebSocket 连接。
+
+桥接提供转发时间戳，不提供原始 ROS 传感器消息头。保存的采集数据与 probe 报告会标记 `timestamp_source: "bridge_forwarding_ms"` 和 `sensor_header_timestamps_available: false`。因此 100 ms 阈值检查的是转发时间对齐，不能证明曝光时刻同步。图像与状态还必须均在最近 750 ms 内收到。采样时保持手臂静止，并完成独立触碰验证。光学坐标系按配置中的相机话题指定，并记录 `frame_id_source: "configured_camera_topic"`，不是接收到的 ROS 消息头。
+
+腕部离线求解只要求保存的图像和包含同步 `arm_q14` 的 JSON，不依赖这两种实时传输方式。配置的名称列表将外部关节名称映射为随附 URDF 要求的 14 值顺序。FK 的实物精度仍需用留出集棋盘图像和独立触碰检查。
+
+如果终端设置了 HTTP 代理，读取控制器反馈前先让机器人局域网地址绕过代理：
+
+```bash
+export NO_PROXY=10.192.1.2,10.192.1.4,127.0.0.1,localhost
+export no_proxy="$NO_PROXY"
+```
 
 ```bash
 ../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json probe
 ```
 
-`probe` 不要求画面中有棋盘，会把同步图像和带名称的关节 JSON 保存到 `data/wrist_camera_session/`。它还会在拍照前后读取头部验证所用的同一控制器 `arm_q14`；只有手臂保持静止且 ROS 2 映射值逐项相差不超过 0.005 rad，`mapping_check.passed` 才为 `true`。控制器比较失败或不可用，不代表图像获取失败。图像与 ROS 2 关节状态的 `state_skew_ms` 是另一项检查，阈值为 100 ms。
+`probe` 不要求画面中有棋盘，会把同步图像和带名称的关节 JSON 保存到 `data/wrist_camera_session/`。它还会在拍照前后读取头部验证所用的同一控制器 `arm_q14`；只有手臂保持静止且 ROS 2 映射值逐项相差不超过 0.005 rad，`mapping_check.passed` 才为 `true`。控制器比较失败或不可用，不代表图像获取失败。图像与 ROS 2 关节状态的 `state_skew_ms` 是另一项检查，阈值为 100 ms。使用桥接后端时，终端汇总应显示 `source: "limx_studio_bridge"`，其时间含义见上文。`capture` 使用同一配置选择传输方式，所有拟合命令保持一致。
 
 把平整的 7×10 内角点棋盘刚性固定，实测方格边长为 0.021 m。在图像采集及触点验证期间保持其位置不变。只通过机器人已有的审核接口调整手臂，并在稳定后采样。采集不同的位置和方向，让棋盘覆盖画面不同区域，并使腕部至少绕两个不同方向转动。每张图应能看到完整棋盘；标定期间不要改变图像缩放设置。
 
@@ -74,16 +100,26 @@ cp configs/wrist_config.example.json configs/wrist_config.json
 
 ## 标定右臂触点 TCP
 
-若要重新标定 TCP，用同一支相对右腕刚性不动的尖端抵住同一个固定点，在至少四个明显不同的腕部朝向下读取实测状态。灵巧手指尖只有在所有手指关节始终保持同一姿态时才能作为尖端；状态文件不记录手指关节。每次由已有的受审核界面调整姿态，稳定后使用机器人集成提供的只读状态命令。该命令不属于独立发布的 `sp_vision`，下面只消费它生成的 JSON 文件：
+若要重新标定 TCP，用同一支相对右腕刚性不动的尖端抵住同一个固定点，在至少四个明显不同的腕部朝向下读取实测状态。灵巧手指尖只有在所有手指关节始终保持同一姿态时才能作为尖端；状态文件不记录手指关节。每次由已有的受审核界面调整姿态，稳定后使用机器人集成提供的只读状态命令。该命令不属于独立发布的 `sp_vision`，下面只消费它生成的 JSON 文件。示例使用本机真实 profile `../configs/local-robot-seed.json`；其他机器应替换为实际 profile，不要使用主机地址仍为占位符的模板。
+
+采集四个 TCP 姿态前，可以使用以下只读命令读取一次当前头部 `q2`：
 
 ```bash
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
+  --output data/wrist_camera_session/tcp/current-state.json
+../.venv/bin/python -c 'import json, pathlib; p = pathlib.Path("data/wrist_camera_session/tcp/current-state.json"); print(json.loads(p.read_text())["head_q2"])'
+```
+
+`head_q2` 顺序为 `[head_pitch_Joint, head_yaw_Joint]`，单位为弧度。需要新状态时重新运行第一条命令。它保存完整的 `arm_q14` 和 `head_q2`，不会发送运动命令。
+
+```bash
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-01.json
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-02.json
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-03.json
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-04.json
 ```
 
@@ -112,16 +148,16 @@ cp configs/wrist_config.example.json configs/wrist_config.json
   --output data/wrist_camera_validation/wrist_selection.json
 ```
 
-这条 `capture --count 1` 每次完整保存后都会用新的 `view-001` 覆盖旧验证图像；按 `q` 退出则保留旧图。重拍后必须重新运行 `select-validation`，使 `wrist_selection.json` 和 `selection.png` 对应新图；旧触点状态是否还能使用，取决于棋盘和实体角点是否保持不动。
+这条 `capture --count 1` 每次完整保存后都会用新的 `view-001` 覆盖旧验证图像；按 `q` 退出则保留旧图。重拍后必须重新运行 `select-validation`，使 `wrist_selection.json` 和 `wrist_selection.png` 对应新图；旧触点状态是否还能使用，取决于棋盘和实体角点是否保持不动。
 
 先检查 `data/wrist_camera_validation/wrist_selection.png` 的编号是否对应将要触碰的实体角点。保持棋盘固定，用与 TCP 拟合时相同的尖端和手指姿态，按编号 1、2、3 触碰；每次稳定后读取一次状态：
 
 ```bash
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_validation/state-01.json
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_validation/state-02.json
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_validation/state-03.json
 
 ../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \

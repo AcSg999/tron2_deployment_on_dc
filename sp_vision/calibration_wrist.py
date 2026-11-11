@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Right wrist camera calibration, with ROS 2 acquisition and offline solves."""
+"""Right wrist camera calibration, with SSH/Studio acquisition and offline solves."""
 
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ def load_config(path: Path) -> dict:
     target = robot["arm_joint_names"]["left"] + robot["arm_joint_names"]["right"]
     if len(source) != 14 or len(set(source)) != 14 or len(target) != 14 or len(set(target)) != 14:
         raise ValueError("ROS 2 and URDF arm joint lists must each contain 14 unique names")
+    if config["capture"].get("backend", "ssh") not in ("ssh", "bridge"):
+        raise ValueError("capture.backend must be ssh or bridge")
     return config
 
 
@@ -55,6 +57,23 @@ def capture_pair(config: dict) -> tuple[np.ndarray, dict]:
     timeout = float(settings.get("timeout_s", 8))
     if not 0 < timeout <= 60:
         raise ValueError("capture.timeout_s must be in (0, 60]")
+    backend = settings.get("backend", "ssh")
+    if backend == "bridge":
+        try:
+            from tron2_deployment.camera_bridge import capture_pair as capture_bridge
+        except ImportError as error:
+            raise RuntimeError("LimX Studio capture requires the optional tron2_deployment bridge adapter") from error
+        if not settings.get("bridge_profile"):
+            raise ValueError("capture.bridge_profile is required for LimX Studio capture")
+        profile = common.read_json(common.config_path(config, settings["bridge_profile"]))
+        names = config["robot"]["ros2_joint_names"]
+        return capture_bridge(
+            profile["camera"], color_topic=topic, joint_topic=settings.get("joint_topic", "/joint_states"),
+            domain_id=int(settings.get("ros_domain_id", 0)), required_names=names["left"] + names["right"],
+            camera_frame=config["robot"]["camera_frame"], timeout_s=timeout,
+            max_state_skew_ms=float(settings.get("max_state_skew_ms", 100)))
+    if backend != "ssh":
+        raise ValueError("capture.backend must be ssh or bridge")
     remote = f"""source /opt/ros/foxy/setup.bash
 export ROS_DOMAIN_ID={int(settings.get('ros_domain_id', 0))}
 python3 - <<'PY'
@@ -115,14 +134,27 @@ PY
     return image, payload
 
 
+def check_camera_frame(config: dict, frame: dict) -> None:
+    """Accept the native ROS frame or an explicitly identified Studio topic."""
+    sync = frame.get("sensor_sync", {})
+    bridge = sync.get("source") == "limx_studio_bridge"
+    expected_frame = config["robot"]["camera_frame"] if bridge else "right_color_optical_frame"
+    if frame.get("camera_frame_id") != expected_frame:
+        raise ValueError("unexpected camera frame ID")
+    if bridge and (sync.get("color_topic") != config["capture"]["color_topic"]
+                   or sync.get("timestamp_source") != "bridge_forwarding_ms"
+                   or sync.get("sensor_header_timestamps_available") is not False
+                   or sync.get("frame_id_source") != "configured_camera_topic"):
+        raise ValueError("Bridge capture lacks explicit topic and forwarding timestamp provenance")
+
+
 def check_frame(config: dict, frame: dict) -> list[float]:
     sync = frame.get("sensor_sync", {})
     image_ns, joint_ns = int(sync["image_stamp_ns"]), int(sync["joint_stamp_ns"])
     limit = float(config["capture"].get("max_state_skew_ms", 100))
     if abs(image_ns - joint_ns) / 1e6 > limit:
         raise ValueError("image and joint state exceed the synchronization limit")
-    if frame.get("camera_frame_id") != "right_color_optical_frame":
-        raise ValueError("unexpected camera frame ID")
+    check_camera_frame(config, frame)
     joints = sync.get("joints", {})
     arm = arm_state(config, joints)
     if not np.allclose(arm, frame["arm_q14"], atol=1e-9, rtol=0):
@@ -268,6 +300,9 @@ def probe_command(config: dict, output: Path) -> None:
     else:
         mapping_check["reason"] = vendor_error or "controller state was unavailable"
     report = {"schema_version": 1, "camera_frame_id": sample["frame_id"],
+              "source": sample.get("source", "ssh_ros2"),
+              "timestamp_source": sample.get("timestamp_source", "ros2_header_ns"),
+              "sensor_header_timestamps_available": sample.get("sensor_header_timestamps_available", True),
               "image_stamp_ns": sample["image_stamp_ns"], "joint_stamp_ns": sample["joint_stamp_ns"],
               "state_skew_ms": abs(sample["image_stamp_ns"] - sample["joint_stamp_ns"]) / 1e6,
               "ros2_named_joints": sample["joints"], "arm_q14": arm,
@@ -275,6 +310,7 @@ def probe_command(config: dict, output: Path) -> None:
               "image": str(image_path.resolve())}
     common.write_json(output, report)
     print(json.dumps({"output": str(output), "image": str(image_path),
+                      "source": report["source"], "timestamp_source": report["timestamp_source"],
                       "state_skew_ms": report["state_skew_ms"], "mapping_check": mapping_check}, indent=2))
 
 
@@ -305,8 +341,10 @@ def intrinsics_command(config, session, output):
         raise ValueError("wrist camera session has no saved views")
     for path in views:
         frame = common.read_json(path / "frame.json")
-        if frame.get("camera_frame_id") != "right_color_optical_frame":
-            raise ValueError(f"{path} is not a right wrist color frame")
+        try:
+            check_camera_frame(config, frame)
+        except ValueError as error:
+            raise ValueError(f"{path}: {error}") from error
     passed = common.intrinsics_command(config, session, output)
     result = common.read_json(output)
     result["camera_frame"] = config["robot"]["camera_frame"]

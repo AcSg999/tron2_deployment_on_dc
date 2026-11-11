@@ -28,16 +28,42 @@ Camera intrinsics do not depend on how many joints move. They must be calibrated
 ## Prepare and verify state mapping
 
 ```bash
-cp configs/wrist_config.example.json configs/wrist_config.json
+cp -n configs/wrist_config.example.json configs/wrist_config.json
 ```
 
-The reference live setup uses ROS 2 topics over SSH, but this integration is optional. Offline wrist solving only requires saved images and synchronized JSON containing `arm_q14`. The configured name list maps external joint names into the 14-value order expected by the bundled URDF. Physical FK accuracy still needs the held-out board and independent touch checks.
+Keep an existing local configuration. The example defaults to `capture.backend: "ssh"`, which reads ROS 2 topics over SSH. To use the robot's LimX Studio camera WebSocket bridge without SSH, replace the `capture` object in `configs/wrist_config.json` with:
+
+```json
+{
+  "backend": "bridge",
+  "bridge_profile": "../../configs/local-robot-seed.json",
+  "state_profile": "../../configs/local-robot-seed.json",
+  "ros_domain_id": 0,
+  "color_topic": "/camera/right/color/image_resized/compressed",
+  "joint_topic": "/joint_states",
+  "max_state_skew_ms": 100,
+  "timeout_s": 8
+}
+```
+
+Profile paths are relative to the configuration file. This machine already has the local profile above; on another machine use its actual profile. The bridge integration requires the parent `tron2_deployment` package with its `bridge` extra. It uses `camera.bridge_host`, `bridge_path`, TLS and token settings, but explicitly subscribes to the wrist topic above. The browser need not remain open. A bridge failure is reported without falling back to SSH. The controller state comparison still uses its existing read-only WebSocket connection.
+
+The bridge supplies forwarding timestamps rather than original ROS sensor headers. Saved captures and probe reports identify `timestamp_source: "bridge_forwarding_ms"` and `sensor_header_timestamps_available: false`. The 100 ms limit therefore checks forwarding-time alignment; it does not prove exposure-time synchronization. Both image and state must also have been received within 750 ms. Keep the arm still while sampling and complete the independent touch validation. The optical frame is assigned from the configured camera topic and recorded as `frame_id_source: "configured_camera_topic"`; it is not a received ROS header.
+
+Offline wrist solving only requires saved images and synchronized JSON containing `arm_q14`; neither live transport is needed. The configured name list maps external joint names into the 14-value order expected by the bundled URDF. Physical FK accuracy still needs the held-out board and independent touch checks.
+
+If the terminal uses an HTTP proxy, bypass it for the robot LAN addresses before reading controller feedback:
+
+```bash
+export NO_PROXY=10.192.1.2,10.192.1.4,127.0.0.1,localhost
+export no_proxy="$NO_PROXY"
+```
 
 ```bash
 ../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json probe
 ```
 
-`probe` saves a synchronized image and named joint JSON under `data/wrist_camera_session/` without requiring a checkerboard. It also reads the same controller `arm_q14` used by head validation before and after the image, then reports `mapping_check.passed` only if the arm stayed still and each mapped ROS 2 value agrees within 0.005 rad. A failed or unavailable controller comparison does not mean image capture failed. The image/joint `state_skew_ms` is a separate check with a 100 ms limit.
+`probe` saves a synchronized image and named joint JSON under `data/wrist_camera_session/` without requiring a checkerboard. It also reads the same controller `arm_q14` used by head validation before and after the image, then reports `mapping_check.passed` only if the arm stayed still and each mapped ROS 2 value agrees within 0.005 rad. A failed or unavailable controller comparison does not mean image capture failed. The image/joint `state_skew_ms` is a separate check with a 100 ms limit. With the bridge backend, the summary must show `source: "limx_studio_bridge"`; interpret its timing as described above. The same configuration selects the transport for `capture`; all fitting commands remain the same.
 
 Rigidly fix a flat 7×10 inner-corner checkerboard with measured 0.021 m squares. Keep it fixed through the image set and touch check. Move the arm only through the robot's existing reviewed interface, then let it settle. Vary position and orientation so the board covers the image and the wrist rotates about at least two distinct axes. Keep the full board visible; do not change the camera's resize setting during calibration.
 
@@ -74,12 +100,12 @@ The first two values are both below the current **15 mm** threshold correspondin
 
 ## Calibrate the right-arm touch TCP
 
-To recalibrate the TCP, keep one rigid tip against one fixed point and read measured arm state at four clearly different wrist orientations. A dexterous fingertip is usable only if every finger joint remains at the same pose; the state files do not record finger joints. Use the robot integration's read-only state command after each pose settles. The command is intentionally not part of the standalone package; only its resulting JSON files are consumed below:
+To recalibrate the TCP, keep one rigid tip against one fixed point and read measured arm state at four clearly different wrist orientations. A dexterous fingertip is usable only if every finger joint remains at the same pose; the state files do not record finger joints. Use the robot integration's read-only state command after each pose settles. The command is intentionally not part of the standalone package; only its resulting JSON files are consumed below. The examples use this machine's real profile, `../configs/local-robot-seed.json`; replace it with your actual profile on another machine, rather than using a template with a placeholder host.
 
 Before collecting the four TCP poses, use the following read-only commands to obtain one sample of the current live head `q2`:
 
 ```bash
-../.venv/bin/tron2-deploy state --profile configs/robot_profile.example.json \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/current-state.json
 ../.venv/bin/python -c 'import json, pathlib; p = pathlib.Path("data/wrist_camera_session/tcp/current-state.json"); print(json.loads(p.read_text())["head_q2"])'
 ```
@@ -87,20 +113,20 @@ Before collecting the four TCP poses, use the following read-only commands to ob
 The `head_q2` order is `[head_pitch_Joint, head_yaw_Joint]`, in radians. Rerun the first command to read a fresh state. It saves the complete `arm_q14` and `head_q2` state and does not send any motion command.
 
 ```bash
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-01.json
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-02.json
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-03.json
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_session/tcp/pose-04.json
 ```
 
 The wrist command reuses the head workflow's fixed-point solver and returns the tip position in `wrist_roll_R_Link`:
 
 ```bash
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   pivot --states data/wrist_camera_session/tcp/pose-{01,02,03,04}.json \
   --output data/wrist_camera_session/tcp/wrist_tcp_pivot.json
 ```
@@ -114,10 +140,10 @@ If you already refitted the pivot through the head workflow and saved `data/head
 After fitting extrinsics, keep the checkerboard fixed in the base frame and capture a **new** wrist image that was not used for fitting. The right arm may move after this image; predictions use the joint state synchronized to that image. Select three spread-out, non-collinear physical inner corners that the tip can touch:
 
 ```bash
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   capture --session data/wrist_camera_validation --count 1
 
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   select-validation --frame data/wrist_camera_validation/view-001 \
   --output data/wrist_camera_validation/wrist_selection.json
 ```
@@ -127,16 +153,16 @@ Each completed `capture --count 1` replaces the previous validation image with a
 Inspect the numbers in `data/wrist_camera_validation/wrist_selection.png` against the physical corners. Keep the board fixed and use the same tip and finger pose as in TCP fitting. Touch corners 1, 2, and 3 in order and read state after each pose settles:
 
 ```bash
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_validation/state-01.json
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_validation/state-02.json
-robot-state-command \
+../.venv/bin/tron2-deploy state --profile ../configs/local-robot-seed.json \
   --output data/wrist_camera_validation/state-03.json
 
-.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
+../.venv/bin/python calibration_wrist.py --config configs/wrist_config.json \
   validate --selection data/wrist_camera_validation/wrist_selection.json \
-   --side right --tcp data/wrist_camera_session/tcp/wrist_tcp_pivot.json \
+  --side right --tcp data/wrist_camera_session/tcp/wrist_tcp_pivot.json \
   --states data/wrist_camera_validation/state-{01,02,03}.json \
   --output data/wrist_camera_validation/wrist_validation.json
 ```

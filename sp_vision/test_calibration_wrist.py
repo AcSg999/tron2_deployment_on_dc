@@ -56,6 +56,72 @@ def test_probe_compares_ros2_order_with_head_validation_controller_state(tmp_pat
     assert report["state_skew_ms"] == 2
 
 
+def test_bridge_capture_uses_configured_profile_and_preserves_provenance(tmp_path, monkeypatch):
+    from tron2_deployment import camera_bridge
+    config = _config()
+    profile = tmp_path / "profile.json"
+    wrist.common.write_json(profile, {"camera": {"backend": "bridge", "bridge_host": "wss://camera.example"}})
+    config["capture"].update(backend="bridge", bridge_profile=str(profile))
+    names = config["robot"]["ros2_joint_names"]["left"] + config["robot"]["ros2_joint_names"]["right"]
+    sample = {"frame_id": config["robot"]["camera_frame"], "source": "limx_studio_bridge",
+              "frame_id_source": "configured_camera_topic", "timestamp_source": "bridge_forwarding_ms",
+              "sensor_header_timestamps_available": False, "color_topic": config["capture"]["color_topic"],
+              "image_stamp_ns": 1_000_000_000, "joint_stamp_ns": 1_023_000_000,
+              "joints": dict(zip(names, np.linspace(-.3, .3, 14)))}
+
+    def capture(camera, **options):
+        assert camera["bridge_host"] == "wss://camera.example"
+        assert options["required_names"] == names
+        return np.zeros((480, 640, 3), np.uint8), sample
+
+    monkeypatch.setattr(camera_bridge, "capture_pair", capture)
+    monkeypatch.setattr(wrist.subprocess, "run", lambda *a, **k: pytest.fail("Bridge capture must not invoke SSH"))
+    image, saved = wrist.capture_pair(config)
+    frame = {"camera_frame_id": saved["frame_id"], "arm_q14": wrist.arm_state(config, saved["joints"]),
+             "sensor_sync": saved}
+    assert image.shape == (480, 640, 3)
+    assert wrist.check_frame(config, frame) == frame["arm_q14"]
+    # A real bridge capture must reach the intrinsic fit, then retain its
+    # configured camera identity for the subsequent extrinsic solve.
+    session = tmp_path / "session"
+    wrist.common.write_json(session / "view-001" / "frame.json", frame)
+    assert wrist.cv2.imwrite(str(session / "view-001" / "color.png"), image)
+    output = session / "wrist_intrinsics.json"
+
+    def intrinsic_fit(_config, _session, destination):
+        wrist.common.write_json(destination, {"passed": True})
+        return True
+
+    monkeypatch.setattr(wrist.common, "intrinsics_command", intrinsic_fit)
+    assert wrist.intrinsics_command(config, session, output)
+    intrinsic = wrist.common.read_json(output)
+    assert intrinsic["camera_frame"] == config["robot"]["camera_frame"]
+    assert intrinsic["color_topic"] == config["capture"]["color_topic"]
+    wrong_frame = {**frame, "camera_frame_id": "head_camera_color_optical_frame"}
+    wrist.common.write_json(session / "view-001" / "frame.json", wrong_frame)
+    with pytest.raises(ValueError, match="unexpected camera frame"):
+        wrist.intrinsics_command(config, session, output)
+    saved["timestamp_source"] = "ros2_header_ns"
+    with pytest.raises(ValueError, match="provenance"):
+        wrist.check_frame(config, frame)
+
+
+def test_bridge_failure_does_not_fall_back_to_ssh(tmp_path, monkeypatch):
+    from tron2_deployment import camera_bridge
+    config = _config()
+    profile = tmp_path / "profile.json"
+    wrist.common.write_json(profile, {"camera": {"backend": "bridge"}})
+    config["capture"].update(backend="bridge", bridge_profile=str(profile))
+
+    def unavailable(*args, **kwargs):
+        raise TimeoutError("camera unavailable")
+
+    monkeypatch.setattr(camera_bridge, "capture_pair", unavailable)
+    monkeypatch.setattr(wrist.subprocess, "run", lambda *a, **k: pytest.fail("Bridge capture must not invoke SSH"))
+    with pytest.raises(TimeoutError, match="camera unavailable"):
+        wrist.capture_pair(config)
+
+
 def test_touch_validation_rejects_tcp_from_other_arm(tmp_path):
     config = _config()
     selection = tmp_path / "selection.json"

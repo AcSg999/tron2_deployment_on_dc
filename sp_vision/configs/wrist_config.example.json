@@ -2,6 +2,8 @@
   "schema_version": 1,
   "board": {"columns": 7, "rows": 10, "square_m": 0.021},
   "capture": {
+    "backend": "ssh",
+    "bridge_profile": null,
     "host": "guest@10.192.1.4",
     "state_profile": null,
     "ros_domain_id": 0,
