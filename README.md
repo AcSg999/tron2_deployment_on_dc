@@ -21,9 +21,14 @@ tron2_deployment_on_dc/
 │   └── demo.json            # Synthetic mock profile
 ├── sp_vision/               # Standalone camera calibration unit
 │   ├── configs/             # Calibration configs and model snapshots
-│   ├── data/                # Local captures and generated results, ignored by Git
 │   ├── head_calib.md        # Head-camera calibration guide
 │   └── wrist_calib.md       # Wrist-camera calibration guide
+├── output/                  # All local data and generated results, ignored by Git
+│   ├── calibration/
+│   │   ├── guided/          # Existing guided-calibration sessions
+│   │   ├── sp_vision/       # Camera captures, solutions and diagnostics
+│   │   └── bundles/         # Pinned versions of calibration parameters
+│   └── migrations/          # Migration inventories and original metadata
 ├── src/                     # Main deployment package and CLI
 ├── scripts/                 # Installation and offline helper scripts
 ├── tests/                   # Full-package software and mock tests
@@ -31,6 +36,8 @@ tron2_deployment_on_dc/
 ```
 
 `configs/assembly.urdf` is the authoritative final kinematic model for the installed robot with dexterous hands. `configs/robot.urdf` is retained as the hand-free base model and must not be substituted for `assembly.urdf` during final calibration, model hashing or real deployment. The copies under `sp_vision/configs/` are standalone calibration snapshots; they keep offline calibration independent from the parent deployment package and are not operator profiles.
+
+Local captures and generated results share the repository-root `output/` directory. Existing `calibration_data/` sessions moved to `output/calibration/guided/`; existing `sp_vision/data/` sessions moved to `output/calibration/sp_vision/`. Camera scripts default to the latter regardless of the working directory. When supplying `--session` or `--output`, keep local artifacts under `output/`; commands run from `sp_vision/` use `../output/...`. Existing parameter bundles and validation runs retain their locations. The consolidation inventory and originals of path-updated JSON metadata are under `output/migrations/consolidate-20261112/`; historical logs and solver snapshots retain their recorded paths.
 
 | Stage | Guide | Output |
 | --- | --- | --- |

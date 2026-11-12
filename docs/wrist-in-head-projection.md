@@ -4,7 +4,7 @@
 
 ## Current local calibration
 
-The default pinned manifest is [configs/local-camera-calibration-latest.json](../configs/local-camera-calibration-latest.json), currently bound to `head-20261110-220522__wrist-20261111-180956`. The head retains the existing 22:05 pair; the wrist uses the pair from `sp_vision/data/wrist_camera_session_20261111-180956/`. All four files are byte-identical snapshots under `output/calibration/bundles/head-20261110-220522__wrist-20261111-180956/`. File hashes, intrinsic/extrinsic pairing and the relevant FK chains pass their checks. This switch neither refits nor changes numerical parameters; physical accuracy remains unverified.
+The default pinned manifest is [configs/local-camera-calibration-latest.json](../configs/local-camera-calibration-latest.json), currently bound to `head-20261110-220522__wrist-20261111-180956`. The head retains the existing 22:05 pair; the wrist uses the pair from `output/calibration/sp_vision/wrist_camera_session_20261111-180956/`. All four files are byte-identical snapshots under `output/calibration/bundles/head-20261110-220522__wrist-20261111-180956/`. File hashes, intrinsic/extrinsic pairing and the relevant FK chains pass their checks. This switch neither refits nor changes numerical parameters; physical accuracy remains unverified.
 
 The wrist intrinsic RMS is 0.2819 px. Extrinsic fitting automatically excluded training views `view-001`, `view-007` and `view-014`, retaining 31 training and 6 holdout views. Maximum training residuals are 14.51 mm / 1.579°, and holdout residuals are 13.00 mm / 1.382°, within the 15 mm / 2° limits. The previous binding is backed up as `previous-default-manifest.json` in this bundle; `provenance.json` records the sources.
 

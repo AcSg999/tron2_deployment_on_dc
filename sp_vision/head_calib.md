@@ -2,23 +2,25 @@
 
 [简体中文](head_calib.zh-CN.md)
 
+[Wrist-camera calibration](wrist_calib.md)
+
 Controller payload identification (`m`, `mc_x`, `mc_y`, `mc_z`) is not used by this image, joint-angle, and FK calibration. It does not belong in this experiment's JSON or the URDF camera transform. If drag teaching is used to position the robot, configure the current payload separately in the robot controller and confirm its readback before that operation.
 
 ## Calibration parameter publication
 
-The latest local head results are `data/head-camera-session/intrinsics.json` and `extrinsics.json` (2026-09-23); the latest right wrist results are `data/wrist_camera_session/wrist_intrinsics.json` and `wrist_extrinsics.json` (2026-10-05). Their byte-preserving copies and source/hash manifest were published on 2026-10-08 to the dedicated [camera calibration repository](https://github.com/zengxiong111/tron2_camera_calibration/tree/main/calibration_results). Raw captures and local profiles stay Git-ignored here. All four fit results record `passed: true`, but independent touch validation remains `passed: false` (head maximum 14.42 mm, right wrist 12.26 mm, limit 10 mm). The published guide documents frame conventions, image size and the historical head-model limitation; publishing does not establish hardware acceptance.
+The latest local head results are `../output/calibration/sp_vision/head-camera-session/intrinsics.json` and `extrinsics.json` (2026-09-23); the latest right wrist results are `../output/calibration/sp_vision/wrist_camera_session/wrist_intrinsics.json` and `wrist_extrinsics.json` (2026-10-05). Their byte-preserving copies and source/hash manifest were published on 2026-10-08 to the dedicated [camera calibration repository](https://github.com/zengxiong111/tron2_camera_calibration/tree/main/calibration_results). Raw captures and local profiles stay Git-ignored here. All four fit results record `passed: true`, but independent touch validation remains `passed: false` (head maximum 14.42 mm, right wrist 12.26 mm, limit 10 mm). The published guide documents frame conventions, image size and the historical head-model limitation; publishing does not establish hardware acceptance.
 
 ## One-frame ROS 2 camera check
 
-This directory is a standalone calibration unit. Run commands from `sp_vision/`; all default configs, model assets, data, diagnostics, and result JSON files stay in this directory. The bundled `configs/assembly.urdf` and `configs/scene.xml` are the model snapshots used by the offline solver. Hardware adapters are optional and are only needed for live capture.
+This directory is a standalone calibration unit. Run commands from `sp_vision/`; default configs and model assets stay here, while captures, diagnostics and result JSON files go to `../output/calibration/sp_vision/` under the repository-root `output/`. Default output paths are resolved from the script location, independently of the working directory. The bundled `configs/assembly.urdf` and `configs/scene.xml` are the model snapshots used by the offline solver. Hardware adapters are optional and are only needed for live capture.
 
 The deployed color camera topics run under ROS 2 Foxy on `guest@10.192.1.4`. The local ROS 1 Noetic `rostopic` command cannot discover them. To capture a one-frame check:
 
 ```bash
-python capture_ros2_image.py
+../.venv/bin/python capture_ros2_image.py
 ```
 
-The script subscribes to `sensor_msgs/msg/CompressedImage` with the sensor-data QoS profile over SSH and saves `data/right-camera-latest.jpg`. Use `--camera top` for the corresponding head color topic, `/camera/top/color/image_raw/compressed`. Both paths only read images; the snapshot does not include depth or joint state and is not a calibrated observation.
+The script subscribes to `sensor_msgs/msg/CompressedImage` with the sensor-data QoS profile over SSH and saves `../output/calibration/sp_vision/right-camera-latest.jpg`. Use `--camera top` for the corresponding head color topic, `/camera/top/color/image_raw/compressed`. Both paths only read images; the snapshot does not include depth or joint state and is not a calibrated observation.
 
 This directory implements one minimal workflow:
 
@@ -64,20 +66,34 @@ As in the earlier workflow, board geometry can be supplied directly as `--patter
 
 ```bash
 cp configs/head_config.example.json configs/head_config.json
-python -m pip install -r requirements.txt
+../.venv/bin/python -m pip install -r requirements.txt
 ```
 
-The example config references the bundled `configs/assembly.urdf` and `configs/scene.xml`. Live capture integration is intentionally unset by default; offline commands consume pre-captured `view-*` directories. A deployment-specific camera adapter may be supplied by an external integration.
+The example config references the bundled `configs/assembly.urdf` and `configs/scene.xml`. Live capture integration is intentionally unset by default; offline commands consume pre-captured `view-*` directories. A deployment-specific camera adapter may be supplied by an external integration:
+
+```json
+{
+  "capture": {"profile": null},
+  "robot": {
+    "urdf": "assembly.urdf",
+    "model_xml": "scene.xml",
+    "pitch_link": "head_pitch_Link",
+    "camera_frame": "head_camera_color_optical_frame"
+  }
+}
+```
+
+Relative asset paths resolve from the config JSON's directory. The project's existing `.venv` normally already includes NumPy, SciPy, OpenCV contrib and the bridge/ROS adapters.
 
 ## 1. Capture 40 views
 
 Rigidly fix the board where the camera and arm can both reach it. Do not move it during this dataset.
 
 ```bash
-.venv/bin/python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session data/head_camera_session --count 40
+  --session ../output/calibration/sp_vision/head_camera_session --count 40
 ```
 
 By default, `--count` is the number of views in a fresh capture. After all views are saved, the new `view-*` directories replace the previous ones in this session and numbering restarts at `view-001`. Quitting early leaves the previous set intact. To deliberately continue an existing dataset, pass `--append --count N`; for example, add ten views to a 30-view session with `--append --count 10`. Re-run intrinsics and extrinsics after either kind of capture because existing JSON results still describe the previous images.
@@ -89,31 +105,67 @@ Keys are:
 - `f`: reverse corner order by 180° so `(0,0)` remains the same physical corner;
 - `q` or Esc: quit.
 
-Detection uses `findChessboardCornersSB` with `NORMALIZE_IMAGE`, `EXHAUSTIVE`, and `ACCURACY`. It must find all 70 subpixel corners and pass topology, coverage, border, and synchronization checks. Colored row overlays are saved as `corners.png` for review.
+Each saved view contains the original image, colored row overlay and synchronized frame metadata:
+
+```text
+../output/calibration/sp_vision/head_camera_session/
+  view-001/
+    color.png
+    corners.png
+    frame.json
+  ...
+```
 
 Move through combinations spanning positive and negative yaw and pitch, and wait for the head to stop before each save. Cover distinct board positions, tilts, and apparent sizes; extra nearly identical frames do little to improve the fit. With 40 accepted views, the final six diverse frames are held out and the preceding 34 are fitted, subject to quality rejection.
+
+Detection uses:
+
+```text
+findChessboardCornersSB(
+  CALIB_CB_NORMALIZE_IMAGE |
+  CALIB_CB_EXHAUSTIVE |
+  CALIB_CB_ACCURACY
+)
+```
+
+It returns subpixel corners directly without an additional `cornerSubPix` call. All 70 corners must pass topology, coverage, border, optional sharpness and synchronization checks. Keep `corners.png` for manual review.
 
 ## 2. Solve intrinsics
 
 ```bash
-.venv/bin/python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json intrinsics \
   --pattern 7x10 --square-m 0.021 \
-  --session data/head_camera_session \
-  --output data/head_camera_session/head_intrinsics.json
+  --session ../output/calibration/sp_vision/head_camera_session \
+  --output ../output/calibration/sp_vision/head_camera_session/head_intrinsics.json
 ```
 
-Require `passed: true`. Review per-view RMS, the saved diagnostic overlays, and the radial-monotonicity result. Do not continue if focal length or principal point is implausibly different from factory values. Use a physical board; a checkerboard shown on a laptop introduces moiré and is unsuitable for final calibration.
+The solver fits `K` and five distortion coefficients from training frames, records any rejected views and reasons, and rejects a radial distortion mapping that is not monotonic across the image. Inspect reprojection errors with:
+
+```bash
+../.venv/bin/python - <<'PY'
+import json
+
+path = "../output/calibration/sp_vision/head_camera_session/head_intrinsics.json"
+result = json.load(open(path))
+
+print("Overall reprojection RMS / 总体重投影 RMS:", result["rms_px"], "px")
+for view, error in result["training_view_rms_px"].items():
+    print(f"{view}: {error:.4f} px")
+PY
+```
+
+Require `passed: true`, review per-view RMS and diagnostic overlays, and require `radial_monotonicity.minimum_radial_derivative` to be positive. Low RMS cannot compensate for insufficient pose coverage. Do not continue if focal length or principal point is implausibly different from factory values; first check board dimensions, moiré, corner orientation and view coverage. Use a flat physical board for final calibration.
 
 ## 3. Solve camera-to-pitch extrinsics
 
 ```bash
-.venv/bin/python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json extrinsics \
   --pattern 7x10 --square-m 0.021 \
-  --session data/head_camera_session \
-  --intrinsics data/head_camera_session/head_intrinsics.json \
-  --output data/head_camera_session/head_extrinsics.json
+  --session ../output/calibration/sp_vision/head_camera_session \
+  --intrinsics ../output/calibration/sp_vision/head_camera_session/head_intrinsics.json \
+  --output ../output/calibration/sp_vision/head_camera_session/head_extrinsics.json
 ```
 
 For every frame, IPPE PnP provides `T_camera_board`, and final-URDF FK provides `T_base_pitch`. The fixed board imposes:
@@ -142,18 +194,22 @@ Touch one fixed point at four clearly different wrist orientations and read stat
 
 ```bash
 robot-state-command \
-  --output data/tcp/pose-01.json
+  --output ../output/calibration/sp_vision/tcp/pose-01.json
 robot-state-command \
-  --output data/tcp/pose-02.json
+  --output ../output/calibration/sp_vision/tcp/pose-02.json
 robot-state-command \
-  --output data/tcp/pose-03.json
+  --output ../output/calibration/sp_vision/tcp/pose-03.json
 robot-state-command \
-  --output data/tcp/pose-04.json
+  --output ../output/calibration/sp_vision/tcp/pose-04.json
+```
 
-.venv/bin/python calibration.py \
-  --config configs/head_config.json pivot --side left \
-  --states data/tcp/pose-{01,02,03,04}.json \
-  --output data/head_camera_session/tcp/head_tcp_pivot.json
+Fit the tip position in wrist coordinates offline:
+
+```bash
+../.venv/bin/python calibration.py \
+  --config configs/head_config.json pivot --side right \
+  --states ../output/calibration/sp_vision/tcp/pose-{01,02,03,04}.json \
+  --output ../output/calibration/sp_vision/head_camera_session/tcp/head_tcp_pivot.json
 ```
 
 Require `passed: true`. This fits touch-point position, not tool orientation.
@@ -163,80 +219,93 @@ Require `passed: true`. This fits touch-point position, not tool orientation.
 Without moving the board, capture one new image after calibration:
 
 ```bash
-.venv/bin/python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session data/touch-validation --count 1
+  --session ../output/calibration/sp_vision/touch-validation --count 1
 ```
 
 Select three spread-out, non-collinear corners. Omit `--corner` for click-and-snap selection.
 
 ```bash
-.venv/bin/python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json select-validation \
   --pattern 7x10 --square-m 0.021 \
-  --frame data/touch-validation/view-001 \
-  --intrinsics data/head_camera_session/head_intrinsics.json \
-  --extrinsics data/head_camera_session/head_extrinsics.json \
+  --frame ../output/calibration/sp_vision/touch-validation/view-001 \
+  --intrinsics ../output/calibration/sp_vision/head_camera_session/head_intrinsics.json \
+  --extrinsics ../output/calibration/sp_vision/head_camera_session/head_extrinsics.json \
   --corner 0,0 --corner 0,6 --corner 9,3 \
-  --output data/head_camera_validation/head_selection.json
+  --output ../output/calibration/sp_vision/head_camera_validation/head_selection.json
 ```
 
 Inspect `selection.png`. Keep the board fixed, touch labeled points 1, 2, and 3 in order, and read state in the same order. The head may move after imaging: prediction uses the image-synchronized `head_q2`, while later head motion is recorded only as a diagnostic and does not affect the error gate.
 
 ```bash
 robot-state-command \
-  --output data/touch-validation/state-01.json
+  --output ../output/calibration/sp_vision/touch-validation/state-01.json
 robot-state-command \
-  --output data/touch-validation/state-02.json
+  --output ../output/calibration/sp_vision/touch-validation/state-02.json
 robot-state-command \
-  --output data/touch-validation/state-03.json
-
-.venv/bin/python calibration.py \
-  --config configs/head_config.json validate \
-  --selection data/head_camera_validation/head_selection.json \
-  --side right --tcp data/head_camera_session/tcp/head_tcp_pivot.json \
-  --states data/touch-validation/state-{01,02,03}.json \
-  --output data/head_camera_validation/head_validation.json
+  --output ../output/calibration/sp_vision/touch-validation/state-03.json
 ```
 
-The comparison is:
+The program sends no motion commands. Use supervision and low speed, keep the tip repeatable, and avoid pushing the board.
+
+Run the comparison:
+
+```bash
+../.venv/bin/python calibration.py \
+  --config configs/head_config.json validate \
+  --selection ../output/calibration/sp_vision/head_camera_validation/head_selection.json \
+  --side right --tcp ../output/calibration/sp_vision/head_camera_session/tcp/head_tcp_pivot.json \
+  --states ../output/calibration/sp_vision/touch-validation/state-{01,02,03}.json \
+  --output ../output/calibration/sp_vision/head_camera_validation/head_validation.json
+```
+
+The camera prediction is:
 
 ```text
 p_base_camera
-  = T_base_pitch(head_q2) · T_pitch_camera · T_camera_board · p_board_corner
+  = T_base_pitch(head_q2)
+  · T_pitch_camera
+  · T_camera_board
+  · p_board_corner
+```
 
+The measured arm touch point is:
+
+```text
 p_base_touch
   = T_base_wrist(arm_q14) · p_wrist_tip
 ```
 
-The metric is 3D Cartesian distance in `base_Link`, not joint-angle difference. The default maximum is 10 mm; replace it with a limit justified by probe repeatability, board mounting, and task clearance. The program sends no motion commands—use supervision and low speed, and do not push the board.
+The metric is 3D Cartesian distance in `base_Link`, not joint-angle difference. The report records each point's error, the mean and the maximum. The default maximum is 10 mm; replace it with a limit justified by probe repeatability, board mounting, and task clearance. The predicted and actual XYZ values in `head_validation.json` can be used to calculate a mean offset for compensation analysis.
 
 ## Recheck previous touch points after moving the head
 
 After accepting the right-arm TCP pivot, the first checkerboard touch selection and three touch states, keep the checkerboard fixed in the same base-frame pose and keep the same rigid tip installation. The head camera may move. Capture one new synchronized color image, reuse the same three physical corners in the original touch order, and compare the newly predicted base-frame points with the saved arm states. This is an offline check; it does not move the robot or require new touches.
 
 ```bash
-python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json capture \
   --pattern 7x10 --square-m 0.021 \
-  --session data/touch-recheck --count 1
+  --session ../output/calibration/sp_vision/touch-recheck --count 1
 
-python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json select-validation \
   --pattern 7x10 --square-m 0.021 \
-  --frame data/touch-recheck/view-001 \
-  --intrinsics data/head_camera_session/head_intrinsics.json \
-  --extrinsics data/head_camera_session/head_extrinsics.json \
-  --reuse-selection data/head_camera_validation/head_selection.json \
-  --output data/head_camera_validation/head_recheck_selection.json
+  --frame ../output/calibration/sp_vision/touch-recheck/view-001 \
+  --intrinsics ../output/calibration/sp_vision/head_camera_session/head_intrinsics.json \
+  --extrinsics ../output/calibration/sp_vision/head_camera_session/head_extrinsics.json \
+  --reuse-selection ../output/calibration/sp_vision/head_camera_validation/head_selection.json \
+  --output ../output/calibration/sp_vision/head_camera_validation/head_recheck_selection.json
 
-python calibration.py \
+../.venv/bin/python calibration.py \
   --config configs/head_config.json validate \
-  --selection data/head_camera_validation/head_recheck_selection.json \
-  --side right --tcp data/head_camera_session/tcp/head_tcp_pivot.json \
-  --states data/touch-validation/state-{01,02,03}.json \
-  --output data/head_camera_validation/head_recheck_validation.json
+  --selection ../output/calibration/sp_vision/head_camera_validation/head_recheck_selection.json \
+  --side right --tcp ../output/calibration/sp_vision/head_camera_session/tcp/head_tcp_pivot.json \
+  --states ../output/calibration/sp_vision/touch-validation/state-{01,02,03}.json \
+  --output ../output/calibration/sp_vision/head_camera_validation/head_recheck_validation.json
 ```
 
 Inspect `head_recheck_selection.png` and confirm that the labels match the same physical corners. The new image supplies one board PnP pose; the old states supply the three base-frame touch points. If the board moved after the first touches, or the tip installation changed, the comparison is invalid. The report gives per-point 3D distances and exits with status 1 when the configured limit is exceeded.
@@ -244,7 +313,7 @@ Inspect `head_recheck_selection.png` and confirm that the labels match the same 
 ## Offline check
 
 ```bash
-.venv/bin/python -m pytest -q test_calibration.py
+../.venv/bin/python -m pytest -q test_calibration.py
 ```
 
 This checks 7×10 SB detection, hand-eye transform direction, final-model FK, yaw/pitch origin behavior, and URDF/XML agreement without connecting to hardware.

@@ -20,7 +20,7 @@ from scipy.spatial.transform import Rotation
 import calibration as common
 
 
-DEFAULT_SESSION = Path(__file__).resolve().parent / "data" / "wrist_camera_session"
+DEFAULT_SESSION = common.DATA_ROOT / "wrist_camera_session"
 
 
 def load_config(path: Path) -> dict:

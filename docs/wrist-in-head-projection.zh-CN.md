@@ -4,7 +4,7 @@
 
 ## 当前本机标定版本
 
-默认绑定清单为 [configs/local-camera-calibration-latest.json](../configs/local-camera-calibration-latest.json)，目前绑定 `head-20261110-220522__wrist-20261111-180956`。头部继续使用原有 22:05 版本；右腕使用 `sp_vision/data/wrist_camera_session_20261111-180956/` 的内外参。四份文件已逐字节复制到 `output/calibration/bundles/head-20261110-220522__wrist-20261111-180956/`，文件哈希、内外参配对和相关正运动学链检查通过。本次切换没有重新拟合或修改参数数值，实物精度仍未验收。
+默认绑定清单为 [configs/local-camera-calibration-latest.json](../configs/local-camera-calibration-latest.json)，目前绑定 `head-20261110-220522__wrist-20261111-180956`。头部继续使用原有 22:05 版本；右腕使用 `output/calibration/sp_vision/wrist_camera_session_20261111-180956/` 的内外参。四份文件已逐字节复制到 `output/calibration/bundles/head-20261110-220522__wrist-20261111-180956/`，文件哈希、内外参配对和相关正运动学链检查通过。本次切换没有重新拟合或修改参数数值，实物精度仍未验收。
 
 本次腕部内参 RMS 为 0.2819 px；外参自动排除训练视角 `view-001`、`view-007`、`view-014`，保留 31 张训练图和 6 张留出图。训练集最大残差为 14.51 mm / 1.579°，留出集为 13.00 mm / 1.382°，均在 15 mm / 2° 门槛内。旧绑定备份保存在本版目录的 `previous-default-manifest.json`，完整来源记录见 `provenance.json`。
 

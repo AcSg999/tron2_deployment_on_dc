@@ -21,9 +21,14 @@ tron2_deployment_on_dc/
 │   └── demo.json            # 合成 mock profile
 ├── sp_vision/               # 独立相机标定单元
 │   ├── configs/             # 标定配置和模型快照
-│   ├── data/                # 本地采集数据和生成结果
 │   ├── head_calib.zh-CN.md  # 头部相机标定指南
 │   └── wrist_calib.zh-CN.md # 腕部相机标定指南
+├── output/                  # 全部本地数据和生成结果，由 Git 忽略
+│   ├── calibration/
+│   │   ├── guided/          # 已有引导式标定会话
+│   │   ├── sp_vision/       # 相机采集、求解结果和诊断记录
+│   │   └── bundles/         # 固定版本的标定参数
+│   └── migrations/          # 迁移清单和原始元数据
 ├── src/                     # 主部署包和 CLI
 ├── scripts/                 # 安装及离线辅助脚本
 ├── tests/                   # 完整软件和 mock 测试
@@ -31,6 +36,8 @@ tron2_deployment_on_dc/
 ```
 
 `configs/assembly.urdf` 是包含灵巧手的最终机器人运动学真值，用于最终标定、模型哈希和真实部署。`configs/robot.urdf` 是不含灵巧手的基础模型，不能在最终标定、模型哈希或真实部署中替代 `assembly.urdf`。`sp_vision/configs/` 下的文件是独立标定快照，用于让离线标定脱离父部署包；它们不是 operator profile。
+
+本地采集数据和生成结果统一存放在仓库根目录的 `output/`。原 `calibration_data/` 会话已迁至 `output/calibration/guided/`；原 `sp_vision/data/` 会话已迁至 `output/calibration/sp_vision/`。相机脚本无论从哪个工作目录启动，都默认写入后者。显式指定 `--session` 或 `--output` 时，也请将本地产物放在 `output/` 下；从 `sp_vision/` 运行的命令使用 `../output/...`。已有参数包和验证记录保留原位置。迁移清单及更新路径前的 JSON 元数据原件保存在 `output/migrations/consolidate-20261112/`；历史日志和求解器快照保留当时记录的路径。
 
 | 阶段 | 文档 | 输出 |
 | --- | --- | --- |
